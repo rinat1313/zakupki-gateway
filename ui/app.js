@@ -16,6 +16,7 @@ let state = {
   categories: [],
   stats: [],
   jobs: [],
+  workers: { ingest: "running", analyze: "running", analyze_active: false },
   activeSlug: null,
   activeJobId: null,
   logAfter: 0,
@@ -72,19 +73,48 @@ function escapeHtml(s) {
 }
 
 async function refreshAll() {
-  const [cats, stats, jobs] = await Promise.all([
+  const [cats, stats, jobs, workers] = await Promise.all([
     api("/categories"),
     api("/stats/ingest"),
     api("/ingest/jobs"),
+    api("/workers").catch(() => ({ ingest: "running", analyze: "running", analyze_active: false })),
   ]);
   state.categories = cats || [];
   state.stats = stats || [];
   state.jobs = jobs || [];
+  state.workers = workers || state.workers;
   renderCategories();
   renderOverall();
+  renderWorkers();
   renderJobs();
   if (state.activeSlug) await renderCatalog();
   if (state.activeJobId) await renderJobDetail(false);
+}
+
+function workerPillClass(st) {
+  if (st === "paused") return "pill warn";
+  if (st === "stopped") return "pill stopped";
+  return "pill ok";
+}
+
+function renderWorkers() {
+  const w = state.workers || {};
+  const ingestEl = $("#ingest-state");
+  const analyzeEl = $("#analyze-state");
+  ingestEl.textContent = w.ingest || "running";
+  ingestEl.className = workerPillClass(w.ingest);
+  analyzeEl.textContent = w.analyze || "running";
+  analyzeEl.className = workerPillClass(w.analyze);
+  $("#analyze-active").classList.toggle("hidden", !w.analyze_active);
+
+  const ingestPaused = w.ingest === "paused" || w.ingest === "stopped";
+  $("#btn-ingest-pause").disabled = ingestPaused;
+  $("#btn-ingest-resume").disabled = !ingestPaused;
+  $("#btn-ingest-stop").disabled = w.ingest === "stopped";
+
+  const analyzePaused = w.analyze === "paused";
+  $("#btn-analyze-pause").disabled = analyzePaused;
+  $("#btn-analyze-resume").disabled = !analyzePaused;
 }
 
 function renderCategories() {
@@ -326,6 +356,29 @@ $("#upload-submit").addEventListener("click", async () => {
 $("#overall-bar-wrap").addEventListener("click", () => {
   $("#jobs-panel").classList.toggle("hidden");
 });
+
+async function workerAction(path, confirmMsg) {
+  if (confirmMsg && !confirm(confirmMsg)) return;
+  try {
+    state.workers = await api(path, { method: "POST" });
+    renderWorkers();
+    await refreshAll();
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+$("#btn-ingest-pause").addEventListener("click", () => workerAction("/workers/ingest/pause"));
+$("#btn-ingest-resume").addEventListener("click", () => workerAction("/workers/ingest/resume"));
+$("#btn-ingest-stop").addEventListener("click", () =>
+  workerAction("/workers/ingest/stop", "Остановить сбор и отменить всю очередь?")
+);
+$("#btn-analyze-pause").addEventListener("click", () => workerAction("/workers/analyze/pause"));
+$("#btn-analyze-resume").addEventListener("click", () => workerAction("/workers/analyze/resume"));
+$("#btn-analyze-stop").addEventListener("click", () =>
+  workerAction("/workers/analyze/stop", "Остановить текущий AI-запрос и поставить анализ на паузу?")
+);
+
 $("#jobs-collapse").addEventListener("click", () => $("#jobs-panel").classList.add("hidden"));
 $("#job-detail-close").addEventListener("click", () => {
   $("#job-detail").classList.add("hidden");
