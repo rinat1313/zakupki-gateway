@@ -65,6 +65,12 @@ func mustProxy(raw string) *httputil.ReverseProxy {
 		log.Fatalf("bad proxy url %q: %v", raw, err)
 	}
 	p := httputil.NewSingleHostReverseProxy(u)
+	// AI-анализ (несколько LLM-вызовов) может идти минутами — не рвём upstream рано.
+	p.Transport = &http.Transport{
+		Proxy:                 http.ProxyFromEnvironment,
+		ResponseHeaderTimeout: 20 * time.Minute,
+		IdleConnTimeout:       90 * time.Second,
+	}
 	orig := p.Director
 	p.Director = func(r *http.Request) {
 		orig(r)
