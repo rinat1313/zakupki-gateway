@@ -34,6 +34,32 @@
             <div class="progress-bar" id="overall-bar" style="width:0%"></div>
           </div>
           <div class="small text-secondary mt-2" id="overall-eta">осталось ≈ —</div>
+
+          <div class="worker-controls mt-3">
+            <div class="worker-row">
+              <div class="worker-label">
+                <span class="worker-name">Сбор</span>
+                <span class="pill" id="ingest-state">running</span>
+              </div>
+              <div class="btn-group btn-group-sm" role="group">
+                <button type="button" class="btn btn-outline-dark" id="btn-ingest-pause" title="Пауза сбора">Пауза</button>
+                <button type="button" class="btn btn-outline-dark" id="btn-ingest-resume" title="Продолжить сбор">Продолжить</button>
+                <button type="button" class="btn btn-outline-danger" id="btn-ingest-stop" title="Остановить и отменить очередь">Стоп</button>
+              </div>
+            </div>
+            <div class="worker-row">
+              <div class="worker-label">
+                <span class="worker-name">AI-анализ</span>
+                <span class="pill" id="analyze-state">running</span>
+                <span class="small text-secondary hidden" id="analyze-active">идёт запрос…</span>
+              </div>
+              <div class="btn-group btn-group-sm" role="group">
+                <button type="button" class="btn btn-outline-dark" id="btn-analyze-pause">Пауза</button>
+                <button type="button" class="btn btn-outline-dark" id="btn-analyze-resume">Продолжить</button>
+                <button type="button" class="btn btn-outline-danger" id="btn-analyze-stop" title="Отменить текущий AI-запрос">Стоп</button>
+              </div>
+            </div>
+          </div>
         </section>
 
         <section id="jobs-panel" class="jobs-panel hidden">
