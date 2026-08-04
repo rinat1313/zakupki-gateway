@@ -480,7 +480,7 @@ $("#tender-analyze").addEventListener("click", async () => {
       body: JSON.stringify({ checklist_id: "default" }),
     });
     const rec = res.analizator && res.analizator.recommendation;
-    alert(rec ? `Готово: ${rec}` : "Анализ сохранён");
+    alert(rec ? `Оценка для самозанятого: ${rec}` : "Анализ сохранён");
     await openTender(state.currentTenderId);
     renderCatalog();
   } catch (err) {
