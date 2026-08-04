@@ -1,12 +1,45 @@
 const API = "/api/v1";
-const ANALYSIS = ["none", "analyzed", "delete", "irrelevant", "past", "other"];
+const ANALYSIS = ["none", "analyzing", "analyzed", "delete", "irrelevant", "past", "other"];
 const ANALYSIS_LABELS = {
-  none: "не обработаны",
-  analyzed: "проанализированные",
+  none: "не обработан",
+  analyzing: "анализ…",
+  analyzed: "проанализирован",
   delete: "на удаление",
-  irrelevant: "нерелевантные",
-  past: "прошедшие",
-  other: "прочее",
+  irrelevant: "нерелевантный",
+  past: "прошедший",
+  other: "ошибка / прочее",
+};
+const INGEST_LABELS = {
+  queued: "в очереди",
+  running: "в работе",
+  ok: "готово",
+  error: "ошибка",
+  skipped: "пропущен",
+  unsupported_source: "источник не поддержан",
+  failed_analyze: "ошибка анализа",
+  cancelled: "отменён",
+};
+const JOB_LABELS = {
+  queued: "в очереди",
+  running: "в работе",
+  done: "готово",
+  error: "ошибка",
+  cancelled: "отменён",
+};
+const WORKER_LABELS = {
+  running: "работает",
+  paused: "пауза",
+  stopped: "стоп",
+};
+const DOC_STATUS_LABELS = {
+  processed: "обработан",
+  unprocessed: "не обработан",
+};
+const REC_LABELS = {
+  participate: "Да",
+  caution: "С оговорками",
+  skip: "Нет",
+  unknown: "Неясно",
 };
 
 const $ = (s) => document.querySelector(s);
@@ -16,7 +49,7 @@ let state = {
   categories: [],
   stats: [],
   jobs: [],
-  workers: { ingest: "running", analyze: "running", analyze_active: false },
+  workers: { ingest: "running", auto_ai: false, analyze_active: false },
   activeSlug: null,
   activeJobId: null,
   logAfter: 0,
@@ -71,13 +104,41 @@ function escapeHtml(s) {
     .replace(/&/g, "&amp;").replace(/</g, "&lt;")
     .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
+function label(map, key, fallback) {
+  if (key == null || key === "") return fallback || "—";
+  return map[key] || fallback || String(key);
+}
+function markIcon(ok) {
+  if (ok === true) return `<span class="mark ok" title="успешно">✓</span>`;
+  if (ok === false) return `<span class="mark bad" title="ошибка">✕</span>`;
+  return `<span class="mark pending" title="в процессе">…</span>`;
+}
+function dualBars(t) {
+  const collectPct = t.collect_pct ?? 0;
+  const aiPct = t.ai_pct ?? 0;
+  return `
+    <div class="dual-bars">
+      <div class="bar-row">
+        <span class="bar-label">Сбор</span>
+        <div class="progress bar-collect"><div class="progress-bar" style="width:${collectPct}%"></div></div>
+        <span class="bar-pct">${collectPct}%</span>
+        ${markIcon(t.collect_ok)}
+      </div>
+      <div class="bar-row">
+        <span class="bar-label">AI</span>
+        <div class="progress bar-ai"><div class="progress-bar" style="width:${aiPct}%"></div></div>
+        <span class="bar-pct">${aiPct}%</span>
+        ${markIcon(t.ai_ok)}
+      </div>
+    </div>`;
+}
 
 async function refreshAll() {
   const [cats, stats, jobs, workers] = await Promise.all([
     api("/categories"),
     api("/stats/ingest"),
     api("/ingest/jobs"),
-    api("/workers").catch(() => ({ ingest: "running", analyze: "running", analyze_active: false })),
+    api("/workers").catch(() => ({ ingest: "running", auto_ai: false, analyze_active: false })),
   ]);
   state.categories = cats || [];
   state.stats = stats || [];
@@ -100,21 +161,22 @@ function workerPillClass(st) {
 function renderWorkers() {
   const w = state.workers || {};
   const ingestEl = $("#ingest-state");
-  const analyzeEl = $("#analyze-state");
-  ingestEl.textContent = w.ingest || "running";
+  ingestEl.textContent = label(WORKER_LABELS, w.ingest, "работает");
   ingestEl.className = workerPillClass(w.ingest);
-  analyzeEl.textContent = w.analyze || "running";
-  analyzeEl.className = workerPillClass(w.analyze);
+
+  const autoOn = !!w.auto_ai;
+  const analyzeEl = $("#analyze-state");
+  analyzeEl.textContent = autoOn ? (w.analyze_active ? "анализ…" : "вкл") : "выкл";
+  analyzeEl.className = autoOn ? (w.analyze_active ? "pill warn" : "pill ok") : "pill";
   $("#analyze-active").classList.toggle("hidden", !w.analyze_active);
+
+  const toggle = $("#auto-ai-toggle");
+  if (toggle.checked !== autoOn) toggle.checked = autoOn;
 
   const ingestPaused = w.ingest === "paused" || w.ingest === "stopped";
   $("#btn-ingest-pause").disabled = ingestPaused;
   $("#btn-ingest-resume").disabled = !ingestPaused;
   $("#btn-ingest-stop").disabled = w.ingest === "stopped";
-
-  const analyzePaused = w.analyze === "paused";
-  $("#btn-analyze-pause").disabled = analyzePaused;
-  $("#btn-analyze-resume").disabled = !analyzePaused;
 }
 
 function renderCategories() {
@@ -170,9 +232,9 @@ function renderJobs() {
     el.className = "job-card";
     el.innerHTML = `
       <div class="d-flex justify-content-between"><strong>${escapeHtml(j.category_title || j.category_slug || "")}</strong>
-        <span class="pill">${escapeHtml(j.status)}</span></div>
+        <span class="pill">${escapeHtml(label(JOB_LABELS, j.status))}</span></div>
       <div class="progress mt-2"><div class="progress-bar" style="width:${p.pct}%"></div></div>
-      <div class="small text-secondary mt-1">${p.pct}% · ${p.done}/${p.total} · ${j.source_name || ""} · осталось ≈ ${fmtDuration(p.etaSec)}</div>`;
+      <div class="small text-secondary mt-1">${p.pct}% · ${p.done}/${p.total} · ${escapeHtml(j.source_name || "")} · осталось ≈ ${fmtDuration(p.etaSec)}</div>`;
     el.addEventListener("click", () => openJob(j.id));
     list.appendChild(el);
   }
@@ -195,7 +257,7 @@ async function renderJobDetail(resetLog) {
   const items = data.items || [];
   const p = jobProgress(job);
   $("#job-detail-title").textContent = job.category_title || job.category_slug || "Задача";
-  $("#job-detail-meta").textContent = `${job.status} · ${job.source_name || ""} · ${job.id}`;
+  $("#job-detail-meta").textContent = `${label(JOB_LABELS, job.status)} · ${job.source_name || ""} · ${job.id}`;
   $("#job-detail-bar").style.width = p.pct + "%";
 
   const running = items.find((i) => i.status === "running");
@@ -205,7 +267,7 @@ async function renderJobDetail(resetLog) {
   box.innerHTML = items.map((i) => `
     <div class="item-row ${i.status === "running" ? "running" : ""}">
       <strong>${escapeHtml(i.reg_number)}</strong>
-      <span class="pill">${escapeHtml(i.status)}</span>
+      <span class="pill">${escapeHtml(label(INGEST_LABELS, i.status))}</span>
       <div class="small text-secondary">${escapeHtml(i.source_site || "")}</div>
       ${i.error ? `<div class="small text-danger">${escapeHtml(i.error)}</div>` : ""}
     </div>`).join("") || `<div class="item-row text-secondary">нет позиций</div>`;
@@ -234,20 +296,65 @@ async function renderCatalog() {
   const params = new URLSearchParams({ category: state.activeSlug });
   if (q) params.set("q", q);
   const tenders = await api("/tenders?" + params);
-  const tb = $("#tenders-body");
-  tb.innerHTML = "";
+  const grid = $("#tenders-grid");
+  grid.innerHTML = "";
   for (const t of tenders || []) {
-    const tr = document.createElement("tr");
-    tr.innerHTML = `
-      <td>${escapeHtml(t.reg_number)}</td>
-      <td>${fmtDate(t.application_end)}</td>
-      <td>${money(t.nmck)}</td>
-      <td><span class="pill">${escapeHtml(t.analysis_status)}</span></td>
-      <td><button type="button" class="btn btn-sm btn-outline-dark">Открыть</button></td>`;
-    tr.querySelector("button").addEventListener("click", () => openTender(t.id));
-    tb.appendChild(tr);
+    const tone = t.card_tone === "good" ? "tone-good" : (t.card_tone === "bad" ? "tone-bad" : "tone-neutral");
+    const rec = t.recommendation ? `<span class="pill">${escapeHtml(label(REC_LABELS, t.recommendation))}</span>` : "";
+    const card = document.createElement("article");
+    card.className = `tender-card ${tone}`;
+    card.innerHTML = `
+      <div class="tender-card-top">
+        <div>
+          <div class="tender-reg">${escapeHtml(t.reg_number)}</div>
+          <div class="tender-obj">${escapeHtml(t.object_name || "—")}</div>
+        </div>
+        <div class="tender-meta">
+          <span class="pill">${escapeHtml(label(ANALYSIS_LABELS, t.analysis_status))}</span>
+          ${rec}
+        </div>
+      </div>
+      <div class="tender-facts">
+        <span>Окончание: ${fmtDate(t.application_end)}</span>
+        <span>НМЦК: ${money(t.nmck)}</span>
+        <span>Док.: ${t.docs_with_text || 0}/${t.docs_total || 0}</span>
+      </div>
+      ${dualBars(t)}
+      <div class="tender-actions">
+        <button type="button" class="btn btn-sm btn-outline-dark btn-open">Открыть</button>
+        <button type="button" class="btn btn-sm btn-outline-primary btn-ai" ${t.ready_for_ai || t.analysis_status === "analyzed" || t.analysis_status === "other" ? "" : "disabled"}>AI</button>
+      </div>`;
+    card.querySelector(".btn-open").addEventListener("click", () => openTender(t.id));
+    card.querySelector(".btn-ai").addEventListener("click", () => analyzeFromCard(t.id, card.querySelector(".btn-ai")));
+    grid.appendChild(card);
   }
   $("#catalog-empty").classList.toggle("hidden", !!(tenders && tenders.length));
+}
+
+async function analyzeFromCard(id, btn) {
+  const prev = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = "…";
+  try {
+    const res = await api(`/tenders/${id}/analyze`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ checklist_id: "default" }),
+    });
+    const summary = (res.assessment && res.assessment.summary) || "";
+    const details = res.assessment && res.assessment.details;
+    const rec = details && details.recommendation;
+    alert(
+      (rec ? `${label(REC_LABELS, rec)}\n\n` : "") +
+      (summary ? summary.slice(0, 1200) : "Анализ сохранён")
+    );
+    await renderCatalog();
+  } catch (err) {
+    alert("AI-анализ: " + err.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = prev;
+  }
 }
 
 async function openTender(id) {
@@ -259,8 +366,8 @@ async function openTender(id) {
   ]);
   $("#tender-title").textContent = t.reg_number;
   const sel = $("#tender-analysis");
-  sel.innerHTML = ANALYSIS.map((a) =>
-    `<option value="${a}" ${a === t.analysis_status ? "selected" : ""}>${a}</option>`
+  sel.innerHTML = ANALYSIS.filter((a) => a !== "analyzing" || t.analysis_status === "analyzing").map((a) =>
+    `<option value="${a}" ${a === t.analysis_status ? "selected" : ""}>${ANALYSIS_LABELS[a] || a}</option>`
   ).join("");
 
   let cust = "";
@@ -275,13 +382,13 @@ async function openTender(id) {
 
   const docItems = (docs || []).map((d) => {
     const pill = d.process_status === "processed"
-      ? `<span class="pill ok">processed</span>`
-      : `<span class="pill bad">unprocessed</span>`;
+      ? `<span class="pill ok">${DOC_STATUS_LABELS.processed}</span>`
+      : `<span class="pill bad">${DOC_STATUS_LABELS.unprocessed}</span>`;
     const link = d.source_url ? `<a href="${escapeHtml(d.source_url)}" target="_blank" rel="noopener">скачать</a>` : "";
     const text = d.text_content
       ? `<details><summary>текст</summary><pre>${escapeHtml(d.text_content.slice(0, 6000))}</pre></details>`
       : (d.process_error ? `<div class="small text-danger">${escapeHtml(d.process_error)}</div>` : "");
-    return `<li>${pill} ${escapeHtml(d.filename || d.uid || "doc")} ${link} ${text}</li>`;
+    return `<li>${pill} ${escapeHtml(d.filename || d.uid || "документ")} ${link} ${text}</li>`;
   }).join("");
 
   let payloadPreview = "";
@@ -290,8 +397,12 @@ async function openTender(id) {
     payloadPreview = `<h3>Полные данные карточки</h3><pre>${escapeHtml(pretty.slice(0, 12000))}</pre>`;
   } catch { /* ignore */ }
 
+  const rec = (assessment && assessment.details && assessment.details.recommendation)
+    || t.recommendation || "";
+
   $("#tender-body").innerHTML = `
-    <p><strong>Объект:</strong> ${escapeHtml(t.object_name || "—")}</p>
+    ${dualBars(t)}
+    <p class="mt-3"><strong>Объект:</strong> ${escapeHtml(t.object_name || "—")}</p>
     <p><strong>НМЦК:</strong> ${money(t.nmck)} · <strong>Закон:</strong> ${escapeHtml(t.law || "—")}
       · <strong>Статус:</strong> ${escapeHtml(t.status || "—")}</p>
     <p><strong>Источник:</strong> ${escapeHtml(t.source_site || "")}</p>
@@ -301,10 +412,11 @@ async function openTender(id) {
     <h3>Документы (${(docs || []).length})</h3>
     <ul class="doc-list">${docItems || "<li>нет</li>"}</ul>
     <h3>Оценка</h3>
-    <p>${escapeHtml((assessment && assessment.summary) || "не задана")} · score ${assessment && assessment.score != null ? assessment.score : "—"}</p>
+    <p>${rec ? `<strong>${escapeHtml(label(REC_LABELS, rec))}</strong> · ` : ""}${escapeHtml((assessment && assessment.summary) || "не задана")}
+      · оценка ${assessment && assessment.score != null ? assessment.score : "—"}</p>
     <label class="form-label">Резюме оценки</label>
     <textarea class="form-control mb-2" id="dlg-assess-summary" rows="3">${escapeHtml((assessment && assessment.summary) || "")}</textarea>
-    <label class="form-label">Score</label>
+    <label class="form-label">Оценка (0–1)</label>
     <input type="number" class="form-control" id="dlg-assess-score" step="0.1" value="${assessment && assessment.score != null ? assessment.score : ""}" />
     ${payloadPreview}
   `;
@@ -373,11 +485,21 @@ $("#btn-ingest-resume").addEventListener("click", () => workerAction("/workers/i
 $("#btn-ingest-stop").addEventListener("click", () =>
   workerAction("/workers/ingest/stop", "Остановить сбор и отменить всю очередь?")
 );
-$("#btn-analyze-pause").addEventListener("click", () => workerAction("/workers/analyze/pause"));
-$("#btn-analyze-resume").addEventListener("click", () => workerAction("/workers/analyze/resume"));
-$("#btn-analyze-stop").addEventListener("click", () =>
-  workerAction("/workers/analyze/stop", "Остановить текущий AI-запрос и поставить анализ на паузу?")
-);
+
+$("#auto-ai-toggle").addEventListener("change", async (e) => {
+  const on = e.target.checked;
+  try {
+    state.workers = await api("/workers/auto-ai", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled: on }),
+    });
+    renderWorkers();
+  } catch (err) {
+    e.target.checked = !on;
+    alert(err.message);
+  }
+});
 
 $("#jobs-collapse").addEventListener("click", () => $("#jobs-panel").classList.add("hidden"));
 $("#job-detail-close").addEventListener("click", () => {
@@ -410,10 +532,11 @@ $("#btn-clear-jobs").addEventListener("click", async () => {
 
 $("#btn-refresh-cat").addEventListener("click", () => {
   const box = $("#refresh-checks");
-  box.innerHTML = ANALYSIS.map((a) => `
+  const opts = ANALYSIS.filter((a) => a !== "analyzing");
+  box.innerHTML = opts.map((a) => `
     <div class="form-check">
       <input class="form-check-input refresh-status" type="checkbox" value="${a}" id="rs-${a}" ${a === "none" ? "checked" : ""} />
-      <label class="form-check-label" for="rs-${a}">${ANALYSIS_LABELS[a] || a} (${a})</label>
+      <label class="form-check-label" for="rs-${a}">${ANALYSIS_LABELS[a] || a}</label>
     </div>`).join("");
   refreshModal().show();
 });
@@ -479,12 +602,12 @@ $("#tender-analyze").addEventListener("click", async () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ checklist_id: "default" }),
     });
-    const rec = res.analizator && res.analizator.recommendation;
-    const summary = (res.assessment && res.assessment.summary) || (res.analizator && res.analizator.summary) || "";
+    const summary = (res.assessment && res.assessment.summary) || "";
+    const details = res.assessment && res.assessment.details;
+    const rec = details && details.recommendation;
     alert(
-      (rec ? `Оценка для самозанятого: ${rec}\n\n` : "") +
-      (summary ? summary.slice(0, 1200) : "Анализ сохранён") +
-      "\n\nВ логе LM Studio должны быть POST /v1/chat/completions (не только GET /v1/models)."
+      (rec ? `${label(REC_LABELS, rec)}\n\n` : "") +
+      (summary ? summary.slice(0, 1200) : "Анализ сохранён")
     );
     await openTender(state.currentTenderId);
     renderCatalog();
