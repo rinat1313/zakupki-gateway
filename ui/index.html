@@ -112,7 +112,22 @@
               <button type="button" class="btn btn-outline-secondary btn-sm" id="btn-clear-jobs">Очистить прогресс</button>
             </div>
           </div>
-          <input type="search" class="form-control form-control-sm mb-3" id="catalog-q" placeholder="Поиск по номеру или объекту" />
+          <input type="search" class="form-control form-control-sm mb-2" id="catalog-q" placeholder="Поиск по номеру или объекту" />
+          <div class="catalog-filters mb-3">
+            <label class="form-check form-check-inline">
+              <input class="form-check-input filt" type="checkbox" id="filt-docs" /> документы есть
+            </label>
+            <label class="form-check form-check-inline">
+              <input class="form-check-input filt" type="checkbox" id="filt-ai" /> AI готов
+            </label>
+            <label class="form-check form-check-inline">
+              <input class="form-check-input filt" type="checkbox" id="filt-suitable" /> подходит (да / с оговорками)
+            </label>
+            <label class="form-check form-check-inline">
+              <input class="form-check-input filt" type="checkbox" id="filt-ready" /> к просмотру
+            </label>
+            <span class="small text-secondary ms-2" id="filt-count"></span>
+          </div>
           <div id="tenders-grid" class="tenders-grid"></div>
           <p id="catalog-empty" class="text-secondary small mt-3 hidden">В этой категории пока нет закупок.</p>
         </section>
