@@ -325,9 +325,16 @@ body {
   background: #f7f7f8;
   border-radius: 10px;
   padding: .75rem;
-  max-height: 200px;
+  max-height: 480px;
   overflow: auto;
   font-size: .78rem;
+}
+.catalog-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .35rem .75rem;
+  align-items: center;
+  font-size: .85rem;
 }
 .doc-list { list-style: none; padding: 0; }
 .doc-list li { padding: .5rem 0; border-bottom: 1px solid var(--line); font-size: .9rem; }

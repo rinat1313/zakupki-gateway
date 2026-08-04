@@ -310,9 +310,10 @@ async function renderCatalog() {
   const params = new URLSearchParams({ category: state.activeSlug });
   if (q) params.set("q", q);
   const tenders = await api("/tenders?" + params);
+  const filtered = (tenders || []).filter(matchCatalogFilter);
   const grid = $("#tenders-grid");
   grid.innerHTML = "";
-  for (const t of tenders || []) {
+  for (const t of filtered) {
     const tone = t.card_tone === "good" ? "tone-good"
       : (t.card_tone === "bad" ? "tone-bad"
         : (t.card_tone === "pending" ? "tone-pending" : "tone-neutral"));
@@ -345,7 +346,31 @@ async function renderCatalog() {
     card.querySelector(".btn-ai").addEventListener("click", () => analyzeFromCard(t.id, card.querySelector(".btn-ai")));
     grid.appendChild(card);
   }
-  $("#catalog-empty").classList.toggle("hidden", !!(tenders && tenders.length));
+  const total = (tenders || []).length;
+  $("#filt-count").textContent = filtered.length === total
+    ? `${total} карточек`
+    : `показано ${filtered.length} из ${total}`;
+  $("#catalog-empty").classList.toggle("hidden", filtered.length > 0);
+}
+
+function matchCatalogFilter(t) {
+  const docs = $("#filt-docs")?.checked;
+  const ai = $("#filt-ai")?.checked;
+  const suitable = $("#filt-suitable")?.checked;
+  const ready = $("#filt-ready")?.checked;
+  if (!docs && !ai && !suitable && !ready) return true;
+
+  const hasDocs = (t.docs_total || 0) > 0 && (t.docs_with_text || 0) > 0;
+  const aiDone = t.analysis_status === "analyzed";
+  const rec = (t.recommendation || "").toLowerCase();
+  const isSuitable = aiDone && (rec === "participate" || rec === "caution");
+  const isReady = hasDocs && aiDone && isSuitable;
+
+  if (ready) return isReady;
+  if (docs && !hasDocs) return false;
+  if (ai && !aiDone) return false;
+  if (suitable && !isSuitable) return false;
+  return true;
 }
 
 async function analyzeFromCard(id, btn) {
@@ -406,7 +431,7 @@ async function openTender(id) {
       : `<span class="pill bad">${DOC_STATUS_LABELS.unprocessed}</span>`;
     const link = d.source_url ? `<a href="${escapeHtml(d.source_url)}" target="_blank" rel="noopener">скачать</a>` : "";
     const text = d.text_content
-      ? `<details><summary>текст</summary><pre>${escapeHtml(d.text_content.slice(0, 6000))}</pre></details>`
+      ? `<details><summary>текст (${d.text_content.length.toLocaleString("ru-RU")} симв.)</summary><pre>${escapeHtml(d.text_content)}</pre></details>`
       : (d.process_error ? `<div class="small text-danger">${escapeHtml(d.process_error)}</div>` : "");
     return `<li>${pill} ${escapeHtml(d.filename || d.uid || "документ")} ${link} ${text}</li>`;
   }).join("");
@@ -431,11 +456,9 @@ async function openTender(id) {
     ${cust}
     <h3>Документы (${(docs || []).length})</h3>
     <ul class="doc-list">${docItems || "<li>нет</li>"}</ul>
-    <h3>Оценка</h3>
-    <p>${rec ? `<strong>${escapeHtml(label(REC_LABELS, rec))}</strong> · ` : ""}${escapeHtml((assessment && assessment.summary) || "не задана")}
-      · оценка ${assessment && assessment.score != null ? assessment.score : "—"}</p>
-    <label class="form-label">Резюме оценки</label>
-    <textarea class="form-control mb-2" id="dlg-assess-summary" rows="3">${escapeHtml((assessment && assessment.summary) || "")}</textarea>
+    <h3>Оценка AI</h3>
+    <p>${rec ? `<strong>${escapeHtml(label(REC_LABELS, rec))}</strong> · ` : ""}оценка
+      <strong>${assessment && assessment.score != null ? assessment.score : "—"}</strong></p>
     <label class="form-label">Оценка (0–1)</label>
     <input type="number" class="form-control" id="dlg-assess-score" step="0.1" value="${assessment && assessment.score != null ? assessment.score : ""}" />
     ${payloadPreview}
@@ -697,6 +720,7 @@ $("#catalog-q").addEventListener("input", () => {
   clearTimeout(window.__q);
   window.__q = setTimeout(renderCatalog, 250);
 });
+$$(".filt").forEach((el) => el.addEventListener("change", () => renderCatalog()));
 
 $("#btn-clear-cat").addEventListener("click", async () => {
   if (!state.activeSlug || !confirm("Удалить все закупки этой категории из СУБД?")) return;
@@ -741,13 +765,17 @@ $("#tender-save").addEventListener("click", async () => {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ analysis_status: $("#tender-analysis").value }),
   });
-  const summary = $("#dlg-assess-summary")?.value ?? "";
   const scoreRaw = $("#dlg-assess-score")?.value;
   const score = scoreRaw === "" ? null : Number(scoreRaw);
+  const cur = await api(`/tenders/${state.currentTenderId}/assessment`).catch(() => null);
   await api(`/tenders/${state.currentTenderId}/assessment`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ summary, score, details: {} }),
+    body: JSON.stringify({
+      summary: (cur && cur.summary) || "",
+      score,
+      details: (cur && cur.details) || {},
+    }),
   });
   tenderModal().hide();
   renderCatalog();
