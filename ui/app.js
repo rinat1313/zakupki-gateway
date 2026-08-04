@@ -472,7 +472,7 @@ $("#tender-analyze").addEventListener("click", async () => {
   const btn = $("#tender-analyze");
   const prev = btn.textContent;
   btn.disabled = true;
-  btn.textContent = "Анализ…";
+  btn.textContent = "Анализ… (порции в LM Studio)";
   try {
     const res = await api(`/tenders/${state.currentTenderId}/analyze`, {
       method: "POST",
@@ -480,7 +480,12 @@ $("#tender-analyze").addEventListener("click", async () => {
       body: JSON.stringify({ checklist_id: "default" }),
     });
     const rec = res.analizator && res.analizator.recommendation;
-    alert(rec ? `Оценка для самозанятого: ${rec}` : "Анализ сохранён");
+    const summary = (res.assessment && res.assessment.summary) || (res.analizator && res.analizator.summary) || "";
+    alert(
+      (rec ? `Оценка для самозанятого: ${rec}\n\n` : "") +
+      (summary ? summary.slice(0, 1200) : "Анализ сохранён") +
+      "\n\nВ логе LM Studio должны быть POST /v1/chat/completions (не только GET /v1/models)."
+    );
     await openTender(state.currentTenderId);
     renderCatalog();
   } catch (err) {
