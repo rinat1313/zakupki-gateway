@@ -53,9 +53,15 @@
                 <span class="pill" id="analyze-state">выкл</span>
                 <span class="small text-secondary hidden" id="analyze-active">идёт запрос…</span>
               </div>
-              <div class="form-check form-switch mb-0">
-                <input class="form-check-input" type="checkbox" role="switch" id="auto-ai-toggle" />
-                <label class="form-check-label" for="auto-ai-toggle">Авто</label>
+              <div class="ai-controls">
+                <select class="form-select form-select-sm" id="ai-config-select" title="Конфигурация AI" disabled>
+                  <option value="">конфигурация…</option>
+                </select>
+                <button type="button" class="btn btn-outline-dark btn-sm" id="btn-ai-config" title="Чек-лист / промпты">Чек-лист</button>
+                <div class="form-check form-switch mb-0">
+                  <input class="form-check-input" type="checkbox" role="switch" id="auto-ai-toggle" disabled />
+                  <label class="form-check-label" for="auto-ai-toggle">Авто</label>
+                </div>
               </div>
             </div>
           </div>
@@ -184,6 +190,54 @@
           <button type="button" class="btn btn-outline-dark btn-sm" id="tender-refresh">Обновить карточку</button>
           <button type="button" class="btn btn-dark btn-sm" id="tender-save">Сохранить</button>
           <button type="button" class="btn btn-outline-danger btn-sm" id="tender-delete">Удалить</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- AI config modal -->
+  <div class="modal fade" id="aiConfigModal" tabindex="-1">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+      <div class="modal-content border-0 shadow">
+        <div class="modal-header border-0">
+          <h5 class="modal-title">Чек-лист AI-анализа</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body pt-0">
+          <p class="small text-secondary mb-2">Конфигурации привязаны к категории (ключу). Выберите категорию в каталоге.</p>
+          <div class="mb-2 small text-secondary" id="ai-config-cat-label">Категория: —</div>
+          <div class="mb-3">
+            <label class="form-label">Имя конфигурации</label>
+            <input type="text" class="form-control" id="ai-cfg-name" placeholder="например: самозанятый" />
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Системный промпт</label>
+            <textarea class="form-control" id="ai-cfg-system" rows="4" placeholder="Роль и инструкции для LM Studio"></textarea>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Пользовательский промпт</label>
+            <textarea class="form-control" id="ai-cfg-user" rows="3" placeholder="Целевой вопрос анализа"></textarea>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Правила</label>
+            <textarea class="form-control" id="ai-cfg-rules" rows="3" placeholder="Дополнительные правила оценки"></textarea>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Загрузить .txt (промпт)</label>
+            <input type="file" class="form-control" id="ai-cfg-file" accept=".txt,text/plain" />
+          </div>
+          <div class="form-check mb-2">
+            <input class="form-check-input" type="checkbox" id="ai-cfg-activate" checked />
+            <label class="form-check-label" for="ai-cfg-activate">Сделать активной для Авто</label>
+          </div>
+          <div class="small text-secondary" id="ai-cfg-status"></div>
+          <hr />
+          <div class="section-label">Сохранённые</div>
+          <div id="ai-cfg-list" class="ai-cfg-list"></div>
+        </div>
+        <div class="modal-footer border-0">
+          <button type="button" class="btn btn-light" data-bs-dismiss="modal">Закрыть</button>
+          <button type="button" class="btn btn-dark" id="ai-cfg-save">Сохранить</button>
         </div>
       </div>
     </div>

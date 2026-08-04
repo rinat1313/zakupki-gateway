@@ -49,16 +49,20 @@ let state = {
   categories: [],
   stats: [],
   jobs: [],
-  workers: { ingest: "running", auto_ai: false, analyze_active: false },
+  workers: { ingest: "running", auto_ai: false, analyze_active: false, analizator: "disabled", analizator_configured: false },
   activeSlug: null,
   activeJobId: null,
   logAfter: 0,
   currentTenderId: null,
+  aiConfigs: [],
+  activeAiConfigId: null,
+  editingAiConfigId: null,
 };
 
 const uploadModal = () => bootstrap.Modal.getOrCreateInstance($("#uploadModal"));
 const refreshModal = () => bootstrap.Modal.getOrCreateInstance($("#refreshModal"));
 const tenderModal = () => bootstrap.Modal.getOrCreateInstance($("#tenderModal"));
+const aiConfigModal = () => bootstrap.Modal.getOrCreateInstance($("#aiConfigModal"));
 
 async function api(path, opts = {}) {
   const res = await fetch(API + path, opts);
@@ -148,7 +152,10 @@ async function refreshAll() {
   renderOverall();
   renderWorkers();
   renderJobs();
-  if (state.activeSlug) await renderCatalog();
+  if (state.activeSlug) {
+    await renderCatalog();
+    await loadAIConfigs(false);
+  }
   if (state.activeJobId) await renderJobDetail(false);
 }
 
@@ -164,14 +171,20 @@ function renderWorkers() {
   ingestEl.textContent = label(WORKER_LABELS, w.ingest, "работает");
   ingestEl.className = workerPillClass(w.ingest);
 
+  const azConfigured = !!(w.analizator_configured || w.analizator === "ok");
   const autoOn = !!w.auto_ai;
   const analyzeEl = $("#analyze-state");
-  analyzeEl.textContent = autoOn ? (w.analyze_active ? "анализ…" : "вкл") : "выкл";
-  analyzeEl.className = autoOn ? (w.analyze_active ? "pill warn" : "pill ok") : "pill";
+  analyzeEl.textContent = !azConfigured ? "нет AI" : (autoOn ? (w.analyze_active ? "анализ…" : "вкл") : "выкл");
+  analyzeEl.className = !azConfigured ? "pill" : (autoOn ? (w.analyze_active ? "pill warn" : "pill ok") : "pill");
   $("#analyze-active").classList.toggle("hidden", !w.analyze_active);
 
   const toggle = $("#auto-ai-toggle");
+  toggle.disabled = !azConfigured;
   if (toggle.checked !== autoOn) toggle.checked = autoOn;
+
+  const sel = $("#ai-config-select");
+  sel.disabled = autoOn || !state.activeSlug;
+  renderAIConfigSelect();
 
   const ingestPaused = w.ingest === "paused" || w.ingest === "stopped";
   $("#btn-ingest-pause").disabled = ingestPaused;
@@ -195,6 +208,7 @@ function renderCategories() {
       $("#catalog-panel").classList.remove("hidden");
       renderCategories();
       renderCatalog();
+      loadAIConfigs(true);
     });
     box.appendChild(btn);
   }
@@ -299,10 +313,13 @@ async function renderCatalog() {
   const grid = $("#tenders-grid");
   grid.innerHTML = "";
   for (const t of tenders || []) {
-    const tone = t.card_tone === "good" ? "tone-good" : (t.card_tone === "bad" ? "tone-bad" : "tone-neutral");
+    const tone = t.card_tone === "good" ? "tone-good"
+      : (t.card_tone === "bad" ? "tone-bad"
+        : (t.card_tone === "pending" ? "tone-pending" : "tone-neutral"));
     const rec = t.recommendation ? `<span class="pill">${escapeHtml(label(REC_LABELS, t.recommendation))}</span>` : "";
     const card = document.createElement("article");
     card.className = `tender-card ${tone}`;
+    const canAI = t.ready_for_ai || t.analysis_status === "analyzed" || t.analysis_status === "other" || t.ingest_status === "ok";
     card.innerHTML = `
       <div class="tender-card-top">
         <div>
@@ -322,7 +339,7 @@ async function renderCatalog() {
       ${dualBars(t)}
       <div class="tender-actions">
         <button type="button" class="btn btn-sm btn-outline-dark btn-open">Открыть</button>
-        <button type="button" class="btn btn-sm btn-outline-primary btn-ai" ${t.ready_for_ai || t.analysis_status === "analyzed" || t.analysis_status === "other" ? "" : "disabled"}>AI</button>
+        <button type="button" class="btn btn-sm btn-outline-primary btn-ai" ${canAI ? "" : "disabled"}>AI</button>
       </div>`;
     card.querySelector(".btn-open").addEventListener("click", () => openTender(t.id));
     card.querySelector(".btn-ai").addEventListener("click", () => analyzeFromCard(t.id, card.querySelector(".btn-ai")));
@@ -339,7 +356,10 @@ async function analyzeFromCard(id, btn) {
     const res = await api(`/tenders/${id}/analyze`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ checklist_id: "default" }),
+      body: JSON.stringify({
+        checklist_id: "default",
+        config_id: state.activeAiConfigId || $("#ai-config-select")?.value || "",
+      }),
     });
     const summary = (res.assessment && res.assessment.summary) || "";
     const details = res.assessment && res.assessment.details;
@@ -488,6 +508,12 @@ $("#btn-ingest-stop").addEventListener("click", () =>
 
 $("#auto-ai-toggle").addEventListener("change", async (e) => {
   const on = e.target.checked;
+  const w = state.workers || {};
+  if (on && !(w.analizator_configured || w.analizator === "ok")) {
+    e.target.checked = false;
+    alert("AI-анализатор не настроен");
+    return;
+  }
   try {
     state.workers = await api("/workers/auto-ai", {
       method: "PUT",
@@ -495,9 +521,162 @@ $("#auto-ai-toggle").addEventListener("change", async (e) => {
       body: JSON.stringify({ enabled: on }),
     });
     renderWorkers();
+    if (on) {
+      console.info("Авто AI включён — берёт карточки после завершения сбора (ingest ok) с текстом документов");
+    }
   } catch (err) {
     e.target.checked = !on;
     alert(err.message);
+  }
+});
+
+$("#ai-config-select").addEventListener("change", async (e) => {
+  if (!state.activeSlug || state.workers.auto_ai) return;
+  const id = e.target.value || null;
+  try {
+    await api(`/categories/${encodeURIComponent(state.activeSlug)}/active-ai-config`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ config_id: id }),
+    });
+    state.activeAiConfigId = id;
+    const cat = state.categories.find((c) => c.slug === state.activeSlug);
+    if (cat) cat.active_ai_config_id = id;
+  } catch (err) {
+    alert(err.message);
+    await loadAIConfigs(true);
+  }
+});
+
+$("#btn-ai-config").addEventListener("click", async () => {
+  if (!state.activeSlug) {
+    alert("Сначала выберите категорию");
+    return;
+  }
+  await loadAIConfigs(true);
+  state.editingAiConfigId = null;
+  $("#ai-config-cat-label").textContent = "Категория: " + (state.categories.find((c) => c.slug === state.activeSlug)?.title || state.activeSlug);
+  $("#ai-cfg-name").value = "";
+  $("#ai-cfg-system").value = "";
+  $("#ai-cfg-user").value = "";
+  $("#ai-cfg-rules").value = "";
+  $("#ai-cfg-file").value = "";
+  $("#ai-cfg-status").textContent = "";
+  $("#ai-cfg-activate").checked = true;
+  renderAIConfigList();
+  aiConfigModal().show();
+});
+
+async function loadAIConfigs(forceSelect) {
+  if (!state.activeSlug) return;
+  try {
+    const data = await api(`/categories/${encodeURIComponent(state.activeSlug)}/ai-configs`);
+    state.aiConfigs = data.configs || [];
+    state.activeAiConfigId = data.active_ai_config_id || null;
+    if (forceSelect) renderAIConfigSelect();
+    renderAIConfigList();
+  } catch (err) {
+    console.warn(err);
+  }
+}
+
+function renderAIConfigSelect() {
+  const sel = $("#ai-config-select");
+  if (!sel) return;
+  const cur = state.activeAiConfigId || "";
+  sel.innerHTML = `<option value="">без конфигурации</option>` +
+    (state.aiConfigs || []).map((c) =>
+      `<option value="${escapeHtml(c.id)}" ${c.id === cur ? "selected" : ""}>${escapeHtml(c.name)}</option>`
+    ).join("");
+}
+
+function renderAIConfigList() {
+  const box = $("#ai-cfg-list");
+  if (!box) return;
+  const active = state.activeAiConfigId;
+  box.innerHTML = (state.aiConfigs || []).map((c) => `
+    <div class="ai-cfg-item ${c.id === active ? "active" : ""}">
+      <div><strong>${escapeHtml(c.name)}</strong>${c.id === active ? " · активна" : ""}</div>
+      <div class="d-flex gap-1">
+        <button type="button" class="btn btn-sm btn-outline-dark" data-edit="${escapeHtml(c.id)}">Открыть</button>
+        <button type="button" class="btn btn-sm btn-outline-danger" data-del="${escapeHtml(c.id)}">Удалить</button>
+      </div>
+    </div>`).join("") || `<div class="small text-secondary">Пока нет конфигураций</div>`;
+  box.querySelectorAll("[data-edit]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const c = state.aiConfigs.find((x) => x.id === btn.getAttribute("data-edit"));
+      if (!c) return;
+      state.editingAiConfigId = c.id;
+      $("#ai-cfg-name").value = c.name || "";
+      $("#ai-cfg-system").value = c.system_prompt || "";
+      $("#ai-cfg-user").value = c.user_prompt || "";
+      $("#ai-cfg-rules").value = c.rules || "";
+      $("#ai-cfg-status").textContent = "Редактирование: " + c.name;
+    });
+  });
+  box.querySelectorAll("[data-del]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      if (!confirm("Удалить конфигурацию?")) return;
+      await api(`/categories/${encodeURIComponent(state.activeSlug)}/ai-configs/${btn.getAttribute("data-del")}`, { method: "DELETE" });
+      await loadAIConfigs(true);
+    });
+  });
+}
+
+$("#ai-cfg-file").addEventListener("change", async (e) => {
+  const file = e.target.files && e.target.files[0];
+  if (!file) return;
+  const text = await file.text();
+  if (!$("#ai-cfg-system").value.trim()) {
+    $("#ai-cfg-system").value = text;
+  } else if (!$("#ai-cfg-user").value.trim()) {
+    $("#ai-cfg-user").value = text;
+  } else {
+    $("#ai-cfg-rules").value = ($("#ai-cfg-rules").value + "\n" + text).trim();
+  }
+  if (!$("#ai-cfg-name").value.trim()) {
+    $("#ai-cfg-name").value = file.name.replace(/\.txt$/i, "");
+  }
+  $("#ai-cfg-status").textContent = "Загружен файл: " + file.name;
+});
+
+$("#ai-cfg-save").addEventListener("click", async () => {
+  const status = $("#ai-cfg-status");
+  try {
+    const payload = {
+      name: $("#ai-cfg-name").value.trim(),
+      system_prompt: $("#ai-cfg-system").value,
+      user_prompt: $("#ai-cfg-user").value,
+      rules: $("#ai-cfg-rules").value,
+      activate: $("#ai-cfg-activate").checked,
+    };
+    if (!payload.name) throw new Error("Укажите имя конфигурации");
+    if (state.editingAiConfigId) {
+      await api(`/categories/${encodeURIComponent(state.activeSlug)}/ai-configs/${state.editingAiConfigId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (payload.activate && !state.workers.auto_ai) {
+        await api(`/categories/${encodeURIComponent(state.activeSlug)}/active-ai-config`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ config_id: state.editingAiConfigId }),
+        });
+      }
+    } else {
+      await api(`/categories/${encodeURIComponent(state.activeSlug)}/ai-configs`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+    }
+    status.textContent = "Сохранено";
+    state.editingAiConfigId = null;
+    await loadAIConfigs(true);
+    await refreshAll();
+  } catch (err) {
+    status.textContent = "Ошибка: " + err.message;
   }
 });
 
@@ -600,7 +779,10 @@ $("#tender-analyze").addEventListener("click", async () => {
     const res = await api(`/tenders/${state.currentTenderId}/analyze`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ checklist_id: "default" }),
+      body: JSON.stringify({
+        checklist_id: "default",
+        config_id: state.activeAiConfigId || $("#ai-config-select")?.value || "",
+      }),
     });
     const summary = (res.assessment && res.assessment.summary) || "";
     const details = res.assessment && res.assessment.details;

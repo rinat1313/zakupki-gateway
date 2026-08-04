@@ -214,7 +214,47 @@ body {
 }
 .tender-card.tone-good { background: var(--good); border-color: #b7e0c8; }
 .tender-card.tone-bad { background: var(--bad); border-color: #ebc0c0; }
+.tender-card.tone-pending { background: #ffe8cc; border-color: #f0c48a; }
 .tender-card.tone-neutral { background: #fff; }
+
+.bar-collect .progress-bar,
+.bar-ai .progress-bar,
+.progress-bar {
+  transition: width .55s ease;
+}
+
+.ai-controls {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  flex-wrap: wrap;
+}
+.ai-controls .form-select {
+  min-width: 11rem;
+  max-width: 16rem;
+}
+.ai-cfg-list {
+  display: flex;
+  flex-direction: column;
+  gap: .4rem;
+  max-height: 180px;
+  overflow: auto;
+}
+.ai-cfg-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: .5rem;
+  padding: .45rem .6rem;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  font-size: .85rem;
+}
+.ai-cfg-item.active {
+  border-color: #8bb8f0;
+  background: #f3f8ff;
+}
 
 .tender-card-top {
   display: flex;
