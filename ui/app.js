@@ -318,6 +318,10 @@ async function renderCatalog() {
       : (t.card_tone === "bad" ? "tone-bad"
         : (t.card_tone === "pending" ? "tone-pending" : "tone-neutral"));
     const rec = t.recommendation ? `<span class="pill">${escapeHtml(label(REC_LABELS, t.recommendation))}</span>` : "";
+    const score = t.assess_score != null && t.assess_score !== ""
+      ? `<span class="pill">оценка ${Number(t.assess_score).toFixed(2)}</span>` : "";
+    const feedback = t.assess_summary
+      ? `<div class="tender-ai-feedback">${escapeHtml(t.assess_summary)}</div>` : "";
     const card = document.createElement("article");
     card.className = `tender-card ${tone}`;
     const canAI = t.ready_for_ai || t.analysis_status === "analyzed" || t.analysis_status === "other" || t.ingest_status === "ok";
@@ -330,6 +334,7 @@ async function renderCatalog() {
         <div class="tender-meta">
           <span class="pill">${escapeHtml(label(ANALYSIS_LABELS, t.analysis_status))}</span>
           ${rec}
+          ${score}
         </div>
       </div>
       <div class="tender-facts">
@@ -337,6 +342,7 @@ async function renderCatalog() {
         <span>НМЦК: ${money(t.nmck)}</span>
         <span>Док.: ${t.docs_with_text || 0}/${t.docs_total || 0}</span>
       </div>
+      ${feedback}
       ${dualBars(t)}
       <div class="tender-actions">
         <button type="button" class="btn btn-sm btn-outline-dark btn-open">Открыть</button>
@@ -444,6 +450,18 @@ async function openTender(id) {
 
   const rec = (assessment && assessment.details && assessment.details.recommendation)
     || t.recommendation || "";
+  const summaryText = (assessment && assessment.summary)
+    || t.assess_summary || "";
+  const risks = (assessment && assessment.details && Array.isArray(assessment.details.risks))
+    ? assessment.details.risks : [];
+  const actions = (assessment && assessment.details && Array.isArray(assessment.details.actions))
+    ? assessment.details.actions : [];
+  const risksHtml = risks.length
+    ? `<div class="ai-block"><strong>Риски</strong><ul>${risks.map((r) => `<li>${escapeHtml(String(r))}</li>`).join("")}</ul></div>`
+    : "";
+  const actionsHtml = actions.length
+    ? `<div class="ai-block"><strong>Действия</strong><ul>${actions.map((a) => `<li>${escapeHtml(String(a))}</li>`).join("")}</ul></div>`
+    : "";
 
   $("#tender-body").innerHTML = `
     ${dualBars(t)}
@@ -459,7 +477,11 @@ async function openTender(id) {
     <h3>Оценка AI</h3>
     <p>${rec ? `<strong>${escapeHtml(label(REC_LABELS, rec))}</strong> · ` : ""}оценка
       <strong>${assessment && assessment.score != null ? assessment.score : "—"}</strong></p>
-    <label class="form-label">Оценка (0–1)</label>
+    <label class="form-label">Отзыв AI-анализатора</label>
+    <textarea class="form-control ai-summary-box" id="dlg-assess-summary" rows="6">${escapeHtml(summaryText)}</textarea>
+    ${risksHtml}
+    ${actionsHtml}
+    <label class="form-label mt-2">Оценка (0–1)</label>
     <input type="number" class="form-control" id="dlg-assess-score" step="0.1" value="${assessment && assessment.score != null ? assessment.score : ""}" />
     ${payloadPreview}
   `;
@@ -767,12 +789,13 @@ $("#tender-save").addEventListener("click", async () => {
   });
   const scoreRaw = $("#dlg-assess-score")?.value;
   const score = scoreRaw === "" ? null : Number(scoreRaw);
+  const summary = $("#dlg-assess-summary")?.value ?? "";
   const cur = await api(`/tenders/${state.currentTenderId}/assessment`).catch(() => null);
   await api(`/tenders/${state.currentTenderId}/assessment`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      summary: (cur && cur.summary) || "",
+      summary,
       score,
       details: (cur && cur.details) || {},
     }),
