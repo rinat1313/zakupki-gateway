@@ -290,6 +290,35 @@ body {
   margin-top: auto;
 }
 
+.tender-ai-feedback {
+  font-size: .8rem;
+  line-height: 1.35;
+  color: #1a1a1a;
+  background: rgba(255,255,255,.55);
+  border-left: 3px solid #3d7dd6;
+  padding: .4rem .55rem;
+  max-height: 4.6em;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+}
+
+.ai-summary-box {
+  font-size: .9rem;
+  line-height: 1.4;
+  white-space: pre-wrap;
+}
+
+.ai-block {
+  margin-top: .75rem;
+  font-size: .88rem;
+}
+.ai-block ul {
+  margin: .35rem 0 0;
+  padding-left: 1.1rem;
+}
+
 .dual-bars { display: flex; flex-direction: column; gap: .35rem; }
 .bar-row {
   display: grid;
