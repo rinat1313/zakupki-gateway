@@ -368,6 +368,7 @@ body {
   color: var(--muted);
   font-size: .75rem;
   font-variant-numeric: tabular-nums;
+  min-width: 0;
 }
 .tender-ai-feedback {
   font-size: .86rem;
@@ -388,12 +389,6 @@ body {
   gap: .45rem;
   margin-top: auto;
   flex-wrap: wrap;
-}
-.tender-reg-soft {
-  color: var(--muted);
-  font-size: .75rem;
-  font-variant-numeric: tabular-nums;
-  min-width: 0;
 }
 .tender-status-pill {
   font-weight: 600;
@@ -484,6 +479,28 @@ body {
 .mark.bad { background: #f5c8c8; color: #a11f1f; }
 .mark.pending { background: rgba(0,0,0,.06); color: var(--muted); }
 
+.payload-details {
+  margin-top: 1rem;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  padding: .55rem .85rem;
+}
+.payload-details > summary {
+  cursor: pointer;
+  font-weight: 600;
+  font-size: .95rem;
+  list-style: none;
+}
+.payload-details > summary::-webkit-details-marker { display: none; }
+.payload-details > summary::before {
+  content: "▸ ";
+  color: var(--muted);
+}
+.payload-details[open] > summary::before { content: "▾ "; }
+.payload-details pre {
+  margin-top: .65rem;
+}
 #tender-body h3 { font-size: 1rem; margin-top: 1.2rem; }
 #tender-body pre {
   white-space: pre-wrap;

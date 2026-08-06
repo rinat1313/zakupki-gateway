@@ -463,7 +463,7 @@ async function analyzeFromCard(id, btn) {
 
 async function openTender(id) {
   state.currentTenderId = id;
-  const listed = (state.catalogTenders || []).find((x) => x.id === id) || {};
+  const listed = (state.catalogTenders || []).find((x) => String(x.id) === String(id)) || {};
   const [t, docs, assessmentRaw] = await Promise.all([
     api(`/tenders/${id}`),
     api(`/tenders/${id}/documents?text=1`),
@@ -500,15 +500,18 @@ async function openTender(id) {
   let payloadPreview = "";
   try {
     const pretty = JSON.stringify(typeof t.payload === "string" ? JSON.parse(t.payload) : t.payload, null, 2);
-    payloadPreview = `<h3>Полные данные карточки</h3><pre>${escapeHtml(pretty.slice(0, 12000))}</pre>`;
+    payloadPreview = `<details class="payload-details">
+      <summary>Полные данные карточки</summary>
+      <pre>${escapeHtml(pretty.slice(0, 12000))}</pre>
+    </details>`;
   } catch { /* ignore */ }
 
   const details = parseAssessmentDetails(assessment);
-  const rec = details.recommendation || t.recommendation || listed.recommendation || "";
+  const rec = resolveRecommendation(assessment, t, listed, details);
   const summaryText = (assessment && assessment.summary)
     || t.assess_summary
     || listed.assess_summary
-    || details.error
+    || (details.error ? String(details.error) : "")
     || "";
   const scoreVal = (assessment && assessment.score != null)
     ? assessment.score
@@ -519,13 +522,16 @@ async function openTender(id) {
   for (const a of actions) {
     if (!limits.includes(a)) limits.push(a);
   }
-  if (details.error && !summaryText.includes(String(details.error))) {
-    // keep error visible in limits if not already in summary
-    if (!limits.includes(String(details.error))) limits.push(String(details.error));
+  if (details.error) {
+    const err = String(details.error);
+    if (err && !limits.includes(err)) limits.push(err);
   }
   const limitsHtml = limits.length
     ? `<ul class="mb-0">${limits.map((r) => `<li>${escapeHtml(r)}</li>`).join("")}</ul>`
     : `<p class="small text-secondary mb-0">нет</p>`;
+  const recOptions = Object.entries(REC_LABELS).map(([k, v]) =>
+    `<option value="${escapeHtml(k)}" ${k === rec ? "selected" : ""}>${escapeHtml(v)}</option>`
+  ).join("");
 
   $("#tender-body").innerHTML = `
     ${dualBars(t)}
@@ -540,9 +546,12 @@ async function openTender(id) {
     <section class="tender-ai-section">
       <h3>Оценка AI</h3>
       <div class="ai-block">
-        <strong>Рекомендации</strong>
-        <p class="mb-0 mt-1">${rec ? escapeHtml(label(REC_LABELS, rec)) : "—"}
-          ${scoreVal != null && scoreVal !== "" ? ` · оценка <strong>${escapeHtml(String(scoreVal))}</strong>` : ""}</p>
+        <label class="form-label mb-1" for="dlg-assess-rec"><strong>Рекомендации</strong></label>
+        <select class="form-select" id="dlg-assess-rec">
+          <option value="">— не задана —</option>
+          ${recOptions}
+        </select>
+        ${scoreVal != null && scoreVal !== "" ? `<p class="small text-secondary mb-0 mt-2">оценка AI: <strong>${escapeHtml(String(scoreVal))}</strong></p>` : ""}
       </div>
       <div class="ai-block">
         <label class="form-label mb-1" for="dlg-assess-summary"><strong>Описание ответа от AI-анализ</strong></label>
@@ -569,11 +578,31 @@ function parseAssessmentDetails(assessment) {
   if (typeof d === "string") {
     try { d = JSON.parse(d); } catch { return {}; }
   }
-  // Sometimes details arrives as a nested JSON string after proxy/store roundtrips.
   if (typeof d === "string") {
     try { d = JSON.parse(d); } catch { return {}; }
   }
   return d && typeof d === "object" && !Array.isArray(d) ? d : {};
+}
+
+function resolveRecommendation(assessment, t, listed, details) {
+  const raw = details.recommendation
+    || details.Recommendation
+    || t.recommendation
+    || listed.recommendation
+    || "";
+  let rec = String(raw || "").trim().toLowerCase();
+  if (REC_LABELS[rec]) return rec;
+  const blob = [
+    raw,
+    assessment && assessment.summary,
+    t.assess_summary,
+    listed.assess_summary,
+  ].filter(Boolean).join(" ").toLowerCase();
+  if (/\bparticipate\b|целесообразно|\bда\b.*участ|участ.*да/.test(blob)) return "participate";
+  if (/\bcaution\b|оговорк/.test(blob)) return "caution";
+  if (/\bskip\b|не стоит|нельзя|не подходит/.test(blob)) return "skip";
+  if (/\bunknown\b|неясно|мало данных/.test(blob)) return "unknown";
+  return "";
 }
 
 /* events */
@@ -964,14 +993,18 @@ $("#tender-save").addEventListener("click", async () => {
   const scoreRaw = $("#dlg-assess-score")?.value;
   const score = scoreRaw === "" ? null : Number(scoreRaw);
   const summary = $("#dlg-assess-summary")?.value ?? "";
+  const rec = $("#dlg-assess-rec")?.value || "";
   const cur = await api(`/tenders/${state.currentTenderId}/assessment`).catch(() => null);
+  const details = { ...parseAssessmentDetails(cur) };
+  if (rec) details.recommendation = rec;
+  else delete details.recommendation;
   await api(`/tenders/${state.currentTenderId}/assessment`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       summary,
       score,
-      details: (cur && cur.details) || {},
+      details,
     }),
   });
   tenderModal().hide();
