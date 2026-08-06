@@ -178,6 +178,15 @@ function renderWorkers() {
   analyzeEl.className = !azConfigured ? "pill" : (autoOn ? (w.analyze_active ? "pill warn" : "pill ok") : "pill");
   $("#analyze-active").classList.toggle("hidden", !w.analyze_active);
 
+  const lmEl = $("#lm-healthy-count");
+  if (lmEl) {
+    const n = Number(w.lm_healthy);
+    lmEl.textContent = Number.isFinite(n) && n >= 0 ? String(n) : "0";
+    lmEl.title = azConfigured
+      ? `Живых LM Studio: ${lmEl.textContent}` + (w.lm_hosts != null ? ` из ${w.lm_hosts}` : "")
+      : "AI не настроен";
+  }
+
   const toggle = $("#auto-ai-toggle");
   toggle.disabled = !azConfigured;
   if (toggle.checked !== autoOn) toggle.checked = autoOn;

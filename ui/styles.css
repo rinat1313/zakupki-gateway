@@ -196,6 +196,14 @@ body {
   font-weight: 600;
   min-width: 5.5rem;
 }
+.lm-count {
+  display: inline-block;
+  min-width: 1.1em;
+  margin-left: .2rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  color: #1b7a3a;
+}
 
 .tenders-grid {
   display: grid;
