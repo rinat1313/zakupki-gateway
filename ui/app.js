@@ -219,28 +219,21 @@ function renderCategories() {
 }
 
 function renderOverall() {
-  let overallDone = 0, overallTotal = 0, eta = null, db = 0, queued = 0, running = 0;
+  let overallDone = 0, overallTotal = 0;
   for (const j of state.jobs) {
     const p = jobProgress(j);
     overallDone += p.done;
     overallTotal += p.total;
-    if (p.etaSec != null && p.remaining > 0) eta = Math.max(eta || 0, p.etaSec);
-  }
-  for (const s of state.stats) {
-    db += s.tenders_in_db || 0;
-    queued += s.queued || 0;
-    running += s.running || 0;
   }
   const pct = overallTotal ? Math.round((overallDone / overallTotal) * 100) : 0;
   const pctEl = $("#overall-pct");
   if (pctEl) pctEl.textContent = pct + "%";
-  const metaEl = $("#overall-meta");
-  if (metaEl) {
-    const etaTxt = eta != null ? ` · ≈ ${fmtDuration(eta)}` : "";
-    metaEl.textContent = `в БД: ${db} · ${overallDone}/${overallTotal || 0}${queued || running ? ` · очередь ${queued + running}` : ""}${etaTxt}`;
+  const prog = $("#overall-progress");
+  if (prog) {
+    prog.title = overallTotal
+      ? `Показать задачи · готово ${overallDone} из ${overallTotal}`
+      : "Показать задачи";
   }
-  const bar = $("#overall-bar");
-  if (bar) bar.style.width = pct + "%";
 }
 
 function renderJobs() {
