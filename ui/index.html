@@ -6,56 +6,43 @@
   <title>Zakupki</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/styles.css" />
+  <link rel="stylesheet" href="/styles.css?v=20260806c" />
 </head>
 <body>
   <div class="app">
     <header class="app-header">
       <div class="brand">Zakupki</div>
-      <div class="header-mid">
-        <div class="header-progress">
-          <div class="header-progress-top">
-            <span class="eyebrow">Общий прогресс</span>
-            <span class="header-pct" id="overall-pct">0%</span>
-          </div>
-          <div class="progress progress-header" role="button" id="overall-bar-wrap" title="Показать задачи">
-            <div class="progress-bar" id="overall-bar" style="width:0%"></div>
-          </div>
-          <div class="header-progress-meta">
-            <span id="overall-meta">в БД: 0 · очередь: 0</span>
-            <span id="overall-eta">осталось ≈ —</span>
-          </div>
-        </div>
-        <div class="worker-controls header-workers">
-          <div class="worker-row">
-            <div class="worker-label">
-              <span class="worker-name">Сбор</span>
-              <span class="pill" id="ingest-state">работает</span>
-            </div>
-            <div class="btn-group btn-group-sm" role="group">
-              <button type="button" class="btn btn-outline-dark" id="btn-ingest-pause" title="Пауза сбора">Пауза</button>
-              <button type="button" class="btn btn-outline-dark" id="btn-ingest-resume" title="Продолжить сбор">Продолжить</button>
-              <button type="button" class="btn btn-outline-danger" id="btn-ingest-stop" title="Остановить и отменить очередь">Стоп</button>
-            </div>
-          </div>
-          <div class="worker-row">
-            <div class="worker-label">
-              <span class="worker-name">AI-анализ</span>
-              <span class="pill" id="analyze-state">выкл</span>
-              <span class="small text-secondary hidden" id="analyze-active">идёт запрос…</span>
-            </div>
-            <div class="ai-controls">
-              <select class="form-select form-select-sm" id="ai-config-select" title="Конфигурация AI" disabled>
-                <option value="">конфигурация…</option>
-              </select>
-              <button type="button" class="btn btn-outline-dark btn-sm" id="btn-ai-config" title="Чек-лист / промпты">Чек-лист</button>
-              <div class="form-check form-switch mb-0">
-                <input class="form-check-input" type="checkbox" role="switch" id="auto-ai-toggle" disabled />
-                <label class="form-check-label" for="auto-ai-toggle">Авто</label>
-              </div>
-            </div>
+      <div class="header-mid" id="header-toolbar">
+        <button type="button" class="header-chip header-progress-chip" id="overall-progress" title="Показать задачи">
+          <span class="header-chip-label">Общий прогресс</span>
+          <span class="header-chip-value" id="overall-pct">0%</span>
+          <span class="header-chip-meta" id="overall-meta">в БД: 0</span>
+        </button>
+
+        <div class="header-chip" id="ingest-chip">
+          <span class="header-chip-label">Сбор</span>
+          <span class="pill" id="ingest-state">работает</span>
+          <div class="btn-group btn-group-sm header-chip-btns" role="group">
+            <button type="button" class="btn btn-outline-dark" id="btn-ingest-pause" title="Пауза">Пауза</button>
+            <button type="button" class="btn btn-outline-dark" id="btn-ingest-resume" title="Продолжить">▶</button>
+            <button type="button" class="btn btn-outline-danger" id="btn-ingest-stop" title="Стоп">Стоп</button>
           </div>
         </div>
+
+        <div class="header-chip" id="ai-chip">
+          <span class="header-chip-label">AI-анализ</span>
+          <span class="pill" id="analyze-state">выкл</span>
+          <span class="small text-secondary hidden" id="analyze-active">идёт…</span>
+          <select class="form-select form-select-sm header-ai-select" id="ai-config-select" title="Конфигурация AI" disabled>
+            <option value="">конфигурация…</option>
+          </select>
+          <div class="form-check form-switch mb-0 header-auto">
+            <input class="form-check-input" type="checkbox" role="switch" id="auto-ai-toggle" disabled />
+            <label class="form-check-label" for="auto-ai-toggle">Авто</label>
+          </div>
+        </div>
+
+        <button type="button" class="btn btn-outline-dark btn-sm" id="btn-ai-config" title="Чек-лист / промпты">Чек-лист</button>
       </div>
       <button type="button" class="btn btn-dark btn-sm rounded-pill px-3" id="btn-upload">Добавить</button>
     </header>
@@ -322,6 +309,6 @@
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-  <script src="/app.js"></script>
+  <script src="/app.js?v=20260806c"></script>
 </body>
 </html>

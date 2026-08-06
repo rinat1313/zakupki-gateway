@@ -232,10 +232,15 @@ function renderOverall() {
     running += s.running || 0;
   }
   const pct = overallTotal ? Math.round((overallDone / overallTotal) * 100) : 0;
-  $("#overall-pct").textContent = pct + "%";
-  $("#overall-bar").style.width = pct + "%";
-  $("#overall-meta").textContent = `в БД: ${db} · готово ${overallDone}/${overallTotal} · очередь ${queued} · в работе ${running}`;
-  $("#overall-eta").textContent = `осталось ≈ ${fmtDuration(eta)}`;
+  const pctEl = $("#overall-pct");
+  if (pctEl) pctEl.textContent = pct + "%";
+  const metaEl = $("#overall-meta");
+  if (metaEl) {
+    const etaTxt = eta != null ? ` · ≈ ${fmtDuration(eta)}` : "";
+    metaEl.textContent = `в БД: ${db} · ${overallDone}/${overallTotal || 0}${queued || running ? ` · очередь ${queued + running}` : ""}${etaTxt}`;
+  }
+  const bar = $("#overall-bar");
+  if (bar) bar.style.width = pct + "%";
 }
 
 function renderJobs() {
@@ -334,11 +339,9 @@ async function renderCatalog() {
     const feedback = t.assess_summary
       ? `<div class="tender-ai-feedback">${escapeHtml(t.assess_summary)}</div>` : "";
     card.innerHTML = `
-      <div class="tender-card-top">
-        <div class="tender-head">
-          <div class="tender-obj">${escapeHtml(t.object_name || "Без названия")}</div>
-          <div class="tender-customer">${escapeHtml(customer)}</div>
-        </div>
+      <div class="tender-head">
+        <div class="tender-obj">${escapeHtml(t.object_name || "Без названия")}</div>
+        <div class="tender-customer">${escapeHtml(customer)}</div>
       </div>
       ${feedback}
       <div class="tender-facts">
@@ -349,13 +352,15 @@ async function renderCatalog() {
       ${dualBars(t)}
       <div class="tender-card-foot">
         <div class="tender-foot-left">
-          <span class="pill">${escapeHtml(label(ANALYSIS_LABELS, t.analysis_status))}</span>
-          ${rec}
           <span class="tender-reg-soft">${escapeHtml(t.reg_number || "")}</span>
         </div>
-        <button type="button" class="btn btn-sm btn-outline-primary btn-ai" ${canAI && !aiBusy ? "" : "disabled"}>
-          ${aiBusy ? "…" : "AI"}
-        </button>
+        <div class="tender-foot-actions">
+          <span class="pill tender-status-pill">${escapeHtml(label(ANALYSIS_LABELS, t.analysis_status))}</span>
+          ${rec}
+          <button type="button" class="btn btn-sm btn-outline-primary btn-ai" ${canAI && !aiBusy ? "" : "disabled"}>
+            ${aiBusy ? "…" : "AI"}
+          </button>
+        </div>
       </div>`;
     card.addEventListener("click", (e) => {
       if (e.target.closest(".btn-ai")) return;
@@ -469,11 +474,13 @@ async function analyzeFromCard(id, btn) {
 
 async function openTender(id) {
   state.currentTenderId = id;
-  const [t, docs, assessment] = await Promise.all([
+  const listed = (state.catalogTenders || []).find((x) => x.id === id) || {};
+  const [t, docs, assessmentRaw] = await Promise.all([
     api(`/tenders/${id}`),
     api(`/tenders/${id}/documents?text=1`),
     api(`/tenders/${id}/assessment`).catch(() => null),
   ]);
+  const assessment = assessmentRaw && typeof assessmentRaw === "object" ? assessmentRaw : null;
   $("#tender-title").textContent = t.reg_number;
   const sel = $("#tender-analysis");
   sel.innerHTML = ANALYSIS.filter((a) => a !== "analyzing" || t.analysis_status === "analyzing").map((a) =>
@@ -508,11 +515,27 @@ async function openTender(id) {
   } catch { /* ignore */ }
 
   const details = parseAssessmentDetails(assessment);
-  const rec = details.recommendation || t.recommendation || "";
-  const summaryText = (assessment && assessment.summary) || t.assess_summary || "";
-  const risks = Array.isArray(details.risks) ? details.risks : [];
-  const risksHtml = risks.length
-    ? `<ul class="mb-0">${risks.map((r) => `<li>${escapeHtml(String(r))}</li>`).join("")}</ul>`
+  const rec = details.recommendation || t.recommendation || listed.recommendation || "";
+  const summaryText = (assessment && assessment.summary)
+    || t.assess_summary
+    || listed.assess_summary
+    || details.error
+    || "";
+  const scoreVal = (assessment && assessment.score != null)
+    ? assessment.score
+    : (t.assess_score != null ? t.assess_score : listed.assess_score);
+  const risks = Array.isArray(details.risks) ? details.risks.map((r) => String(r)).filter(Boolean) : [];
+  const actions = Array.isArray(details.actions) ? details.actions.map((a) => String(a)).filter(Boolean) : [];
+  const limits = [...risks];
+  for (const a of actions) {
+    if (!limits.includes(a)) limits.push(a);
+  }
+  if (details.error && !summaryText.includes(String(details.error))) {
+    // keep error visible in limits if not already in summary
+    if (!limits.includes(String(details.error))) limits.push(String(details.error));
+  }
+  const limitsHtml = limits.length
+    ? `<ul class="mb-0">${limits.map((r) => `<li>${escapeHtml(r)}</li>`).join("")}</ul>`
     : `<p class="small text-secondary mb-0">нет</p>`;
 
   $("#tender-body").innerHTML = `
@@ -524,24 +547,28 @@ async function openTender(id) {
     <p><strong>Опубликовано:</strong> ${fmtDate(t.published_at)} · <strong>Обновлено на сайте:</strong> ${fmtDate(t.updated_on_site)}
       · <strong>Окончание заявок:</strong> ${fmtDate(t.application_end)}</p>
     ${cust}
+
+    <section class="tender-ai-section">
+      <h3>Оценка AI</h3>
+      <div class="ai-block">
+        <strong>Рекомендации</strong>
+        <p class="mb-0 mt-1">${rec ? escapeHtml(label(REC_LABELS, rec)) : "—"}
+          ${scoreVal != null && scoreVal !== "" ? ` · оценка <strong>${escapeHtml(String(scoreVal))}</strong>` : ""}</p>
+      </div>
+      <div class="ai-block">
+        <label class="form-label mb-1" for="dlg-assess-summary"><strong>Описание ответа от AI-анализ</strong></label>
+        <textarea class="form-control ai-summary-box" id="dlg-assess-summary" rows="6">${escapeHtml(summaryText)}</textarea>
+      </div>
+      <div class="ai-block">
+        <strong>Ограничения</strong>
+        ${limitsHtml}
+      </div>
+      <label class="form-label mt-3">Оценка (0–1)</label>
+      <input type="number" class="form-control" id="dlg-assess-score" step="0.1" value="${scoreVal != null && scoreVal !== "" ? escapeHtml(String(scoreVal)) : ""}" />
+    </section>
+
     <h3>Документы (${(docs || []).length})</h3>
     <ul class="doc-list">${docItems || "<li>нет</li>"}</ul>
-    <h3>Оценка AI</h3>
-    <div class="ai-block">
-      <strong>Рекомендации</strong>
-      <p class="mb-0 mt-1">${rec ? escapeHtml(label(REC_LABELS, rec)) : "—"}
-        ${assessment && assessment.score != null ? ` · оценка <strong>${assessment.score}</strong>` : ""}</p>
-    </div>
-    <div class="ai-block">
-      <label class="form-label mb-1" for="dlg-assess-summary"><strong>Описание ответа от AI-анализ</strong></label>
-      <textarea class="form-control ai-summary-box" id="dlg-assess-summary" rows="6">${escapeHtml(summaryText)}</textarea>
-    </div>
-    <div class="ai-block">
-      <strong>Ограничения</strong>
-      ${risksHtml}
-    </div>
-    <label class="form-label mt-3">Оценка (0–1)</label>
-    <input type="number" class="form-control" id="dlg-assess-score" step="0.1" value="${assessment && assessment.score != null ? assessment.score : ""}" />
     ${payloadPreview}
   `;
   tenderModal().show();
@@ -549,10 +576,15 @@ async function openTender(id) {
 
 function parseAssessmentDetails(assessment) {
   let d = assessment && assessment.details;
+  if (d == null) return {};
   if (typeof d === "string") {
-    try { d = JSON.parse(d); } catch { d = {}; }
+    try { d = JSON.parse(d); } catch { return {}; }
   }
-  return d && typeof d === "object" ? d : {};
+  // Sometimes details arrives as a nested JSON string after proxy/store roundtrips.
+  if (typeof d === "string") {
+    try { d = JSON.parse(d); } catch { return {}; }
+  }
+  return d && typeof d === "object" && !Array.isArray(d) ? d : {};
 }
 
 /* events */
@@ -597,7 +629,10 @@ $("#upload-submit").addEventListener("click", async () => {
   }
 });
 
-$("#overall-bar-wrap").addEventListener("click", () => {
+$("#overall-progress")?.addEventListener("click", () => {
+  $("#jobs-panel").classList.toggle("hidden");
+});
+$("#overall-bar-wrap")?.addEventListener("click", () => {
   $("#jobs-panel").classList.toggle("hidden");
 });
 
