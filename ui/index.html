@@ -49,7 +49,7 @@
             </div>
             <div class="worker-row">
               <div class="worker-label">
-                <span class="worker-name">AI-анализ <span class="lm-count" id="lm-healthy-count" title="Живых LM Studio">0</span></span>
+                <span class="worker-name">AI-анализ</span>
                 <span class="pill" id="analyze-state">выкл</span>
                 <span class="small text-secondary hidden" id="analyze-active">идёт запрос…</span>
               </div>
@@ -107,15 +107,22 @@
               <div class="small text-secondary" id="catalog-count">0 закупок</div>
             </div>
             <div class="d-flex flex-wrap gap-2">
+              <button type="button" class="btn btn-outline-primary btn-sm" id="btn-export-csv">Выгрузить CSV</button>
               <button type="button" class="btn btn-outline-dark btn-sm" id="btn-refresh-cat">Обновить данные</button>
               <button type="button" class="btn btn-outline-danger btn-sm" id="btn-clear-cat">Очистить закупки</button>
               <button type="button" class="btn btn-outline-secondary btn-sm" id="btn-clear-jobs">Очистить прогресс</button>
             </div>
           </div>
-          <input type="search" class="form-control form-control-sm mb-2" id="catalog-q" placeholder="Поиск по номеру или объекту" />
-          <div class="catalog-filters mb-3">
+          <input type="search" class="form-control form-control-sm mb-2" id="catalog-q" placeholder="Поиск по объекту, заказчику, ИНН…" />
+          <div class="catalog-filters mb-2">
             <label class="form-check form-check-inline">
               <input class="form-check-input filt" type="checkbox" id="filt-docs" /> документы есть
+            </label>
+            <label class="form-check form-check-inline">
+              <input class="form-check-input filt" type="checkbox" id="filt-ready-ai" /> готовы к AI
+            </label>
+            <label class="form-check form-check-inline">
+              <input class="form-check-input filt" type="checkbox" id="filt-analyzing" /> анализируются
             </label>
             <label class="form-check form-check-inline">
               <input class="form-check-input filt" type="checkbox" id="filt-ai" /> AI готов
@@ -124,9 +131,27 @@
               <input class="form-check-input filt" type="checkbox" id="filt-suitable" /> подходит (да / с оговорками)
             </label>
             <label class="form-check form-check-inline">
+              <input class="form-check-input filt" type="checkbox" id="filt-skip" /> не подходит
+            </label>
+            <label class="form-check form-check-inline">
+              <input class="form-check-input filt" type="checkbox" id="filt-error" /> ошибка AI
+            </label>
+            <label class="form-check form-check-inline">
               <input class="form-check-input filt" type="checkbox" id="filt-ready" /> к просмотру
             </label>
-            <span class="small text-secondary ms-2" id="filt-count"></span>
+          </div>
+          <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+            <label class="small text-secondary mb-0" for="catalog-sort">Сортировка</label>
+            <select class="form-select form-select-sm" id="catalog-sort" style="max-width:14rem">
+              <option value="end">по сроку подачи</option>
+              <option value="updated">по обновлению</option>
+              <option value="nmck-desc">НМЦК ↓</option>
+              <option value="nmck-asc">НМЦК ↑</option>
+              <option value="ai-status">по статусу AI</option>
+              <option value="rec">по рекомендации</option>
+              <option value="customer">по заказчику</option>
+            </select>
+            <span class="small text-secondary ms-auto" id="filt-count"></span>
           </div>
           <div id="tenders-grid" class="tenders-grid"></div>
           <p id="catalog-empty" class="text-secondary small mt-3 hidden">В этой категории пока нет закупок.</p>
@@ -253,6 +278,44 @@
         <div class="modal-footer border-0">
           <button type="button" class="btn btn-light" data-bs-dismiss="modal">Закрыть</button>
           <button type="button" class="btn btn-dark" id="ai-cfg-save">Сохранить</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- CSV export modal -->
+  <div class="modal fade" id="exportCsvModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content border-0 shadow">
+        <div class="modal-header border-0">
+          <h5 class="modal-title">Выгрузка CSV</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body pt-0">
+          <p class="small text-secondary mb-2">Категория: <strong id="export-cat-title">—</strong>. Колонки:</p>
+          <div class="export-cols" id="export-cols">
+            <label class="form-check"><input class="form-check-input export-col" type="checkbox" value="reg_number" checked /> № закупки</label>
+            <label class="form-check"><input class="form-check-input export-col" type="checkbox" value="object_name" checked /> Описание / объект</label>
+            <label class="form-check"><input class="form-check-input export-col" type="checkbox" value="customer_inn" checked /> ИНН заказчика</label>
+            <label class="form-check"><input class="form-check-input export-col" type="checkbox" value="customer_name" checked /> Название заказчика</label>
+            <label class="form-check"><input class="form-check-input export-col" type="checkbox" value="assess_summary" checked /> Отзыв AI-анализ</label>
+            <label class="form-check"><input class="form-check-input export-col" type="checkbox" value="recommendation" checked /> Рекомендация</label>
+            <label class="form-check"><input class="form-check-input export-col" type="checkbox" value="assess_score" /> Оценка AI</label>
+            <label class="form-check"><input class="form-check-input export-col" type="checkbox" value="nmck" checked /> НМЦК</label>
+            <label class="form-check"><input class="form-check-input export-col" type="checkbox" value="application_end" checked /> Окончание подачи</label>
+            <label class="form-check"><input class="form-check-input export-col" type="checkbox" value="analysis_status" /> Статус AI</label>
+            <label class="form-check"><input class="form-check-input export-col" type="checkbox" value="ingest_status" /> Статус сбора</label>
+            <label class="form-check"><input class="form-check-input export-col" type="checkbox" value="law" /> Закон</label>
+            <label class="form-check"><input class="form-check-input export-col" type="checkbox" value="source_site" /> Площадка</label>
+          </div>
+          <div class="form-check mt-3">
+            <input class="form-check-input" type="checkbox" id="export-filtered-only" checked />
+            <label class="form-check-label" for="export-filtered-only">Только отфильтрованные карточки</label>
+          </div>
+        </div>
+        <div class="modal-footer border-0">
+          <button type="button" class="btn btn-light" data-bs-dismiss="modal">Отмена</button>
+          <button type="button" class="btn btn-dark" id="btn-export-csv-go">Скачать</button>
         </div>
       </div>
     </div>
