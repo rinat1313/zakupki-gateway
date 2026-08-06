@@ -178,6 +178,15 @@ function renderWorkers() {
   analyzeEl.className = !azConfigured ? "pill" : (autoOn ? (w.analyze_active ? "pill warn" : "pill ok") : "pill");
   $("#analyze-active").classList.toggle("hidden", !w.analyze_active);
 
+  const lmEl = $("#lm-healthy-count");
+  if (lmEl) {
+    const n = Number(w.lm_healthy);
+    lmEl.textContent = Number.isFinite(n) && n >= 0 ? String(n) : "0";
+    lmEl.title = azConfigured
+      ? `Живых LM Studio: ${lmEl.textContent}` + (w.lm_hosts != null ? ` из ${w.lm_hosts}` : "")
+      : "AI не настроен";
+  }
+
   const toggle = $("#auto-ai-toggle");
   toggle.disabled = !azConfigured;
   if (toggle.checked !== autoOn) toggle.checked = autoOn;
@@ -320,7 +329,9 @@ async function renderCatalog() {
     const rec = t.recommendation ? `<span class="pill">${escapeHtml(label(REC_LABELS, t.recommendation))}</span>` : "";
     const card = document.createElement("article");
     card.className = `tender-card ${tone}`;
-    const canAI = t.ready_for_ai || t.analysis_status === "analyzed" || t.analysis_status === "other" || t.ingest_status === "ok";
+    // AI только если есть текст документов (или уже был анализ — можно перезапустить).
+    const canAI = (t.docs_with_text || 0) > 0 || t.ready_for_ai ||
+      t.analysis_status === "analyzed" || t.analysis_status === "other";
     card.innerHTML = `
       <div class="tender-card-top">
         <div>
@@ -545,7 +556,17 @@ $("#auto-ai-toggle").addEventListener("change", async (e) => {
     });
     renderWorkers();
     if (on) {
-      console.info("Авто AI включён — берёт карточки после завершения сбора (ingest ok) с текстом документов");
+      const ready = state.workers.ready_for_ai;
+      const requeued = state.workers.requeued_failed;
+      let msg = "Авто AI включён — берёт карточки с текстом документов (ingest ok).";
+      if (requeued) msg += ` Вернул в очередь упавшие: ${requeued}.`;
+      if (ready != null) msg += ` Готово к AI: ${ready}.`;
+      if (ready === 0) {
+        alert(msg + "\n\nНет карточек со статусом analysis=none и текстом в documents. " +
+          "Дождитесь сбора или перезапустите ingest.");
+      } else {
+        console.info(msg);
+      }
     }
   } catch (err) {
     e.target.checked = !on;
