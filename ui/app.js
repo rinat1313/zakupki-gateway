@@ -118,6 +118,17 @@ function markIcon(ok) {
   if (ok === false) return `<span class="mark bad" title="ошибка">✕</span>`;
   return `<span class="mark pending" title="в процессе">…</span>`;
 }
+/** Компактная строка для каталожной карточки: без шкал. */
+function progressLine(t) {
+  const collectPct = t.collect_pct ?? 0;
+  const aiPct = t.ai_pct ?? 0;
+  return `
+    <div class="progress-line">
+      <span class="prog-item"><span class="bar-label">Сбор</span> <span class="bar-pct">${collectPct}%</span> ${markIcon(t.collect_ok)}</span>
+      <span class="prog-item"><span class="bar-label">AI</span> <span class="bar-pct">${aiPct}%</span> ${markIcon(t.ai_ok)}</span>
+    </div>`;
+}
+/** Полные полосы — в модалке. */
 function dualBars(t) {
   const collectPct = t.collect_pct ?? 0;
   const aiPct = t.ai_pct ?? 0;
@@ -138,6 +149,33 @@ function dualBars(t) {
     </div>`;
 }
 
+function isAIEligible(t) {
+  const hasText = (t.docs_with_text || 0) > 0;
+  return !!t.ready_for_ai
+    || hasText
+    || t.analysis_status === "analyzed"
+    || t.analysis_status === "analyzing"
+    || t.analysis_status === "other";
+}
+
+function renderAICoverage(list) {
+  const tenders = list || state.catalogTenders || [];
+  let eligible = 0, analyzed = 0;
+  for (const t of tenders) {
+    if (!isAIEligible(t)) continue;
+    eligible++;
+    if (t.analysis_status === "analyzed") analyzed++;
+  }
+  const pct = eligible ? Math.round((analyzed / eligible) * 100) : 0;
+  const el = $("#ai-coverage-pct");
+  if (el) {
+    el.textContent = pct + "%";
+    el.title = eligible
+      ? `Проанализировано ${analyzed} из ${eligible} доступных к AI`
+      : "Нет карточек, доступных к AI";
+  }
+}
+
 async function refreshAll() {
   const [cats, stats, jobs, workers] = await Promise.all([
     api("/categories"),
@@ -152,6 +190,7 @@ async function refreshAll() {
   renderCategories();
   renderOverall();
   renderWorkers();
+  renderAICoverage();
   renderJobs();
   if (state.activeSlug) {
     await renderCatalog();
@@ -342,7 +381,7 @@ async function renderCatalog() {
         <span>НМЦК: ${money(t.nmck)}</span>
         <span>Док.: ${t.docs_with_text || 0}/${t.docs_total || 0}</span>
       </div>
-      ${dualBars(t)}
+      ${progressLine(t)}
       <div class="tender-card-foot">
         <span class="tender-reg-soft">${escapeHtml(t.reg_number || "")}</span>
         <span class="pill tender-status-pill">${escapeHtml(label(ANALYSIS_LABELS, t.analysis_status))}</span>
@@ -367,6 +406,7 @@ async function renderCatalog() {
     ? `${total} карточек`
     : `показано ${filtered.length} из ${total}`;
   $("#catalog-empty").classList.toggle("hidden", filtered.length > 0);
+  renderAICoverage(state.catalogTenders);
 }
 
 function matchCatalogFilter(t) {
