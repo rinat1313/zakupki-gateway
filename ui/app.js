@@ -214,7 +214,7 @@ function renderCategories() {
     box.appendChild(btn);
   }
   if (!state.categories.length) {
-    box.innerHTML = `<div class="small text-secondary">Пока нет категорий — загрузите CSV</div>`;
+    box.innerHTML = `<div class="small text-secondary">Пока нет категорий — загрузите файл</div>`;
   }
 }
 
@@ -339,10 +339,6 @@ async function renderCatalog() {
           <div class="tender-obj">${escapeHtml(t.object_name || "Без названия")}</div>
           <div class="tender-customer">${escapeHtml(customer)}</div>
         </div>
-        <div class="tender-meta">
-          <span class="pill">${escapeHtml(label(ANALYSIS_LABELS, t.analysis_status))}</span>
-          ${rec}
-        </div>
       </div>
       ${feedback}
       <div class="tender-facts">
@@ -352,7 +348,11 @@ async function renderCatalog() {
       </div>
       ${dualBars(t)}
       <div class="tender-card-foot">
-        <span class="tender-reg-soft">${escapeHtml(t.reg_number || "")}</span>
+        <div class="tender-foot-left">
+          <span class="pill">${escapeHtml(label(ANALYSIS_LABELS, t.analysis_status))}</span>
+          ${rec}
+          <span class="tender-reg-soft">${escapeHtml(t.reg_number || "")}</span>
+        </div>
         <button type="button" class="btn btn-sm btn-outline-primary btn-ai" ${canAI && !aiBusy ? "" : "disabled"}>
           ${aiBusy ? "…" : "AI"}
         </button>
@@ -507,8 +507,13 @@ async function openTender(id) {
     payloadPreview = `<h3>Полные данные карточки</h3><pre>${escapeHtml(pretty.slice(0, 12000))}</pre>`;
   } catch { /* ignore */ }
 
-  const rec = (assessment && assessment.details && assessment.details.recommendation)
-    || t.recommendation || "";
+  const details = parseAssessmentDetails(assessment);
+  const rec = details.recommendation || t.recommendation || "";
+  const summaryText = (assessment && assessment.summary) || t.assess_summary || "";
+  const risks = Array.isArray(details.risks) ? details.risks : [];
+  const risksHtml = risks.length
+    ? `<ul class="mb-0">${risks.map((r) => `<li>${escapeHtml(String(r))}</li>`).join("")}</ul>`
+    : `<p class="small text-secondary mb-0">нет</p>`;
 
   $("#tender-body").innerHTML = `
     ${dualBars(t)}
@@ -522,13 +527,32 @@ async function openTender(id) {
     <h3>Документы (${(docs || []).length})</h3>
     <ul class="doc-list">${docItems || "<li>нет</li>"}</ul>
     <h3>Оценка AI</h3>
-    <p>${rec ? `<strong>${escapeHtml(label(REC_LABELS, rec))}</strong> · ` : ""}оценка
-      <strong>${assessment && assessment.score != null ? assessment.score : "—"}</strong></p>
-    <label class="form-label">Оценка (0–1)</label>
+    <div class="ai-block">
+      <strong>Рекомендации</strong>
+      <p class="mb-0 mt-1">${rec ? escapeHtml(label(REC_LABELS, rec)) : "—"}
+        ${assessment && assessment.score != null ? ` · оценка <strong>${assessment.score}</strong>` : ""}</p>
+    </div>
+    <div class="ai-block">
+      <label class="form-label mb-1" for="dlg-assess-summary"><strong>Описание ответа от AI-анализ</strong></label>
+      <textarea class="form-control ai-summary-box" id="dlg-assess-summary" rows="6">${escapeHtml(summaryText)}</textarea>
+    </div>
+    <div class="ai-block">
+      <strong>Ограничения</strong>
+      ${risksHtml}
+    </div>
+    <label class="form-label mt-3">Оценка (0–1)</label>
     <input type="number" class="form-control" id="dlg-assess-score" step="0.1" value="${assessment && assessment.score != null ? assessment.score : ""}" />
     ${payloadPreview}
   `;
   tenderModal().show();
+}
+
+function parseAssessmentDetails(assessment) {
+  let d = assessment && assessment.details;
+  if (typeof d === "string") {
+    try { d = JSON.parse(d); } catch { d = {}; }
+  }
+  return d && typeof d === "object" ? d : {};
 }
 
 /* events */
@@ -918,12 +942,13 @@ $("#tender-save").addEventListener("click", async () => {
   });
   const scoreRaw = $("#dlg-assess-score")?.value;
   const score = scoreRaw === "" ? null : Number(scoreRaw);
+  const summary = $("#dlg-assess-summary")?.value ?? "";
   const cur = await api(`/tenders/${state.currentTenderId}/assessment`).catch(() => null);
   await api(`/tenders/${state.currentTenderId}/assessment`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      summary: (cur && cur.summary) || "",
+      summary,
       score,
       details: (cur && cur.details) || {},
     }),

@@ -12,7 +12,52 @@
   <div class="app">
     <header class="app-header">
       <div class="brand">Zakupki</div>
-      <button type="button" class="btn btn-dark btn-sm rounded-pill px-3" id="btn-upload">Добавить CSV</button>
+      <div class="header-mid">
+        <div class="header-progress">
+          <div class="header-progress-top">
+            <span class="eyebrow">Общий прогресс</span>
+            <span class="header-pct" id="overall-pct">0%</span>
+          </div>
+          <div class="progress progress-header" role="button" id="overall-bar-wrap" title="Показать задачи">
+            <div class="progress-bar" id="overall-bar" style="width:0%"></div>
+          </div>
+          <div class="header-progress-meta">
+            <span id="overall-meta">в БД: 0 · очередь: 0</span>
+            <span id="overall-eta">осталось ≈ —</span>
+          </div>
+        </div>
+        <div class="worker-controls header-workers">
+          <div class="worker-row">
+            <div class="worker-label">
+              <span class="worker-name">Сбор</span>
+              <span class="pill" id="ingest-state">работает</span>
+            </div>
+            <div class="btn-group btn-group-sm" role="group">
+              <button type="button" class="btn btn-outline-dark" id="btn-ingest-pause" title="Пауза сбора">Пауза</button>
+              <button type="button" class="btn btn-outline-dark" id="btn-ingest-resume" title="Продолжить сбор">Продолжить</button>
+              <button type="button" class="btn btn-outline-danger" id="btn-ingest-stop" title="Остановить и отменить очередь">Стоп</button>
+            </div>
+          </div>
+          <div class="worker-row">
+            <div class="worker-label">
+              <span class="worker-name">AI-анализ</span>
+              <span class="pill" id="analyze-state">выкл</span>
+              <span class="small text-secondary hidden" id="analyze-active">идёт запрос…</span>
+            </div>
+            <div class="ai-controls">
+              <select class="form-select form-select-sm" id="ai-config-select" title="Конфигурация AI" disabled>
+                <option value="">конфигурация…</option>
+              </select>
+              <button type="button" class="btn btn-outline-dark btn-sm" id="btn-ai-config" title="Чек-лист / промпты">Чек-лист</button>
+              <div class="form-check form-switch mb-0">
+                <input class="form-check-input" type="checkbox" role="switch" id="auto-ai-toggle" disabled />
+                <label class="form-check-label" for="auto-ai-toggle">Авто</label>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <button type="button" class="btn btn-dark btn-sm rounded-pill px-3" id="btn-upload">Добавить</button>
     </header>
 
     <div class="layout">
@@ -22,51 +67,6 @@
       </aside>
 
       <main class="main">
-        <section class="progress-hero card-soft">
-          <div class="d-flex justify-content-between align-items-end gap-3 flex-wrap">
-            <div>
-              <div class="eyebrow">Общий прогресс</div>
-              <div class="hero-pct" id="overall-pct">0%</div>
-            </div>
-            <div class="text-end small text-secondary" id="overall-meta">в БД: 0 · очередь: 0</div>
-          </div>
-          <div class="progress progress-lg mt-3" role="button" id="overall-bar-wrap" title="Показать задачи">
-            <div class="progress-bar" id="overall-bar" style="width:0%"></div>
-          </div>
-          <div class="small text-secondary mt-2" id="overall-eta">осталось ≈ —</div>
-
-          <div class="worker-controls mt-3">
-            <div class="worker-row">
-              <div class="worker-label">
-                <span class="worker-name">Сбор</span>
-                <span class="pill" id="ingest-state">работает</span>
-              </div>
-              <div class="btn-group btn-group-sm" role="group">
-                <button type="button" class="btn btn-outline-dark" id="btn-ingest-pause" title="Пауза сбора">Пауза</button>
-                <button type="button" class="btn btn-outline-dark" id="btn-ingest-resume" title="Продолжить сбор">Продолжить</button>
-                <button type="button" class="btn btn-outline-danger" id="btn-ingest-stop" title="Остановить и отменить очередь">Стоп</button>
-              </div>
-            </div>
-            <div class="worker-row">
-              <div class="worker-label">
-                <span class="worker-name">AI-анализ</span>
-                <span class="pill" id="analyze-state">выкл</span>
-                <span class="small text-secondary hidden" id="analyze-active">идёт запрос…</span>
-              </div>
-              <div class="ai-controls">
-                <select class="form-select form-select-sm" id="ai-config-select" title="Конфигурация AI" disabled>
-                  <option value="">конфигурация…</option>
-                </select>
-                <button type="button" class="btn btn-outline-dark btn-sm" id="btn-ai-config" title="Чек-лист / промпты">Чек-лист</button>
-                <div class="form-check form-switch mb-0">
-                  <input class="form-check-input" type="checkbox" role="switch" id="auto-ai-toggle" disabled />
-                  <label class="form-check-label" for="auto-ai-toggle">Авто</label>
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
-
         <section id="jobs-panel" class="jobs-panel hidden">
           <div class="d-flex justify-content-between align-items-center mb-2">
             <h2 class="h6 mb-0">Задачи</h2>
@@ -165,11 +165,11 @@
     <div class="modal-dialog modal-dialog-centered">
       <div class="modal-content border-0 shadow">
         <div class="modal-header border-0">
-          <h5 class="modal-title">Загрузка CSV</h5>
+          <h5 class="modal-title">Добавить закупки</h5>
           <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
         </div>
         <div class="modal-body pt-0">
-          <p class="small text-secondary">Сначала проверка на ЕИС по номеру, затем адаптер по ссылке (mos, tektorg…).</p>
+          <p class="small text-secondary">Файл с двумя колонками: номер закупки и сайт (csv, xml, xlsx). Сначала проверка на ЕИС по номеру, затем адаптер по ссылке (mos, tektorg…).</p>
           <div class="mb-3">
             <label class="form-label">Категория</label>
             <select class="form-select" id="upload-category"></select>
@@ -182,8 +182,8 @@
             <input type="text" class="form-control" id="upload-new-title" placeholder="Название ключа" />
           </div>
           <div class="mb-3">
-            <label class="form-label">CSV файлы</label>
-            <input type="file" class="form-control" id="upload-files" accept=".csv,text/csv,text/plain" multiple />
+            <label class="form-label">Файлы (csv, xml, xlsx)</label>
+            <input type="file" class="form-control" id="upload-files" accept=".csv,.xml,.xlsx,.xmls,text/csv,text/xml,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/plain" multiple />
           </div>
           <div class="small text-secondary" id="upload-status"></div>
         </div>
