@@ -384,27 +384,25 @@ body {
 }
 .tender-card-foot {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: .75rem;
-  margin-top: auto;
-}
-.tender-foot-left {
-  min-width: 0;
-  flex: 1;
-}
-.tender-foot-actions {
-  display: flex;
   align-items: center;
   gap: .45rem;
-  flex-shrink: 0;
+  margin-top: auto;
+  flex-wrap: wrap;
+}
+.tender-reg-soft {
+  color: var(--muted);
+  font-size: .75rem;
+  font-variant-numeric: tabular-nums;
+  min-width: 0;
 }
 .tender-status-pill {
   font-weight: 600;
+  flex-shrink: 0;
 }
 .tender-card-foot .btn-ai {
   cursor: pointer;
   flex-shrink: 0;
+  margin-left: auto;
 }
 .ai-block {
   margin-top: .75rem;

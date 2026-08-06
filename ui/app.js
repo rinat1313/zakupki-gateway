@@ -344,16 +344,12 @@ async function renderCatalog() {
       </div>
       ${dualBars(t)}
       <div class="tender-card-foot">
-        <div class="tender-foot-left">
-          <span class="tender-reg-soft">${escapeHtml(t.reg_number || "")}</span>
-        </div>
-        <div class="tender-foot-actions">
-          <span class="pill tender-status-pill">${escapeHtml(label(ANALYSIS_LABELS, t.analysis_status))}</span>
-          ${rec}
-          <button type="button" class="btn btn-sm btn-outline-primary btn-ai" ${canAI && !aiBusy ? "" : "disabled"}>
-            ${aiBusy ? "…" : "AI"}
-          </button>
-        </div>
+        <span class="tender-reg-soft">${escapeHtml(t.reg_number || "")}</span>
+        <span class="pill tender-status-pill">${escapeHtml(label(ANALYSIS_LABELS, t.analysis_status))}</span>
+        ${rec}
+        <button type="button" class="btn btn-sm btn-outline-primary btn-ai" ${canAI && !aiBusy ? "" : "disabled"}>
+          ${aiBusy ? "…" : "AI"}
+        </button>
       </div>`;
     card.addEventListener("click", (e) => {
       if (e.target.closest(".btn-ai")) return;
@@ -623,9 +619,6 @@ $("#upload-submit").addEventListener("click", async () => {
 });
 
 $("#overall-progress")?.addEventListener("click", () => {
-  $("#jobs-panel").classList.toggle("hidden");
-});
-$("#overall-bar-wrap")?.addEventListener("click", () => {
   $("#jobs-panel").classList.toggle("hidden");
 });
 
