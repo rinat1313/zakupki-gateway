@@ -6,13 +6,45 @@
   <title>Zakupki</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/styles.css" />
+  <link rel="stylesheet" href="/styles.css?v=20260807a" />
 </head>
 <body>
   <div class="app">
     <header class="app-header">
       <div class="brand">Zakupki</div>
-      <button type="button" class="btn btn-dark btn-sm rounded-pill px-3" id="btn-upload">Добавить CSV</button>
+
+      <div class="hdr-main">
+        <button type="button" class="hdr-cluster hdr-progress" id="overall-progress" title="Показать задачи">
+          <span class="hdr-label">Общий прогресс</span>
+          <span class="hdr-pct" id="overall-pct">0%</span>
+        </button>
+
+        <div class="hdr-cluster" id="ingest-cluster">
+          <span class="hdr-label">Сбор</span>
+          <span class="pill" id="ingest-state">работает</span>
+          <button type="button" class="btn btn-outline-dark btn-sm hdr-btn" id="btn-ingest-pause">Пауза</button>
+          <button type="button" class="btn btn-outline-dark btn-sm hdr-btn" id="btn-ingest-resume">Продолжить</button>
+          <button type="button" class="btn btn-outline-danger btn-sm hdr-btn" id="btn-ingest-stop">Стоп</button>
+        </div>
+
+        <div class="hdr-cluster" id="ai-cluster">
+          <span class="hdr-label">AI</span>
+          <span class="hdr-pct" id="ai-coverage-pct" title="Доля проанализированных среди доступных к AI">0%</span>
+          <span class="hdr-ai-eta" id="ai-eta"></span>
+          <span class="pill" id="analyze-state">выкл</span>
+          <span class="hidden" id="analyze-active"></span>
+          <label class="hdr-auto" for="auto-ai-toggle" title="Автоматический AI-анализ">
+            <input class="form-check-input" type="checkbox" role="switch" id="auto-ai-toggle" disabled />
+            <span>Авто</span>
+          </label>
+          <select class="form-select form-select-sm hdr-select" id="ai-config-select" title="Конфигурация AI" disabled>
+            <option value="">конфигурация…</option>
+          </select>
+          <button type="button" class="btn btn-outline-dark btn-sm hdr-btn" id="btn-ai-config" title="Чек-лист / промпты">Чек-лист</button>
+        </div>
+      </div>
+
+      <button type="button" class="btn btn-dark btn-sm rounded-pill px-3" id="btn-upload">Добавить</button>
     </header>
 
     <div class="layout">
@@ -22,51 +54,6 @@
       </aside>
 
       <main class="main">
-        <section class="progress-hero card-soft">
-          <div class="d-flex justify-content-between align-items-end gap-3 flex-wrap">
-            <div>
-              <div class="eyebrow">Общий прогресс</div>
-              <div class="hero-pct" id="overall-pct">0%</div>
-            </div>
-            <div class="text-end small text-secondary" id="overall-meta">в БД: 0 · очередь: 0</div>
-          </div>
-          <div class="progress progress-lg mt-3" role="button" id="overall-bar-wrap" title="Показать задачи">
-            <div class="progress-bar" id="overall-bar" style="width:0%"></div>
-          </div>
-          <div class="small text-secondary mt-2" id="overall-eta">осталось ≈ —</div>
-
-          <div class="worker-controls mt-3">
-            <div class="worker-row">
-              <div class="worker-label">
-                <span class="worker-name">Сбор</span>
-                <span class="pill" id="ingest-state">работает</span>
-              </div>
-              <div class="btn-group btn-group-sm" role="group">
-                <button type="button" class="btn btn-outline-dark" id="btn-ingest-pause" title="Пауза сбора">Пауза</button>
-                <button type="button" class="btn btn-outline-dark" id="btn-ingest-resume" title="Продолжить сбор">Продолжить</button>
-                <button type="button" class="btn btn-outline-danger" id="btn-ingest-stop" title="Остановить и отменить очередь">Стоп</button>
-              </div>
-            </div>
-            <div class="worker-row">
-              <div class="worker-label">
-                <span class="worker-name">AI-анализ</span>
-                <span class="pill" id="analyze-state">выкл</span>
-                <span class="small text-secondary hidden" id="analyze-active">идёт запрос…</span>
-              </div>
-              <div class="ai-controls">
-                <select class="form-select form-select-sm" id="ai-config-select" title="Конфигурация AI" disabled>
-                  <option value="">конфигурация…</option>
-                </select>
-                <button type="button" class="btn btn-outline-dark btn-sm" id="btn-ai-config" title="Чек-лист / промпты">Чек-лист</button>
-                <div class="form-check form-switch mb-0">
-                  <input class="form-check-input" type="checkbox" role="switch" id="auto-ai-toggle" disabled />
-                  <label class="form-check-label" for="auto-ai-toggle">Авто</label>
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
-
         <section id="jobs-panel" class="jobs-panel hidden">
           <div class="d-flex justify-content-between align-items-center mb-2">
             <h2 class="h6 mb-0">Задачи</h2>
@@ -107,15 +94,22 @@
               <div class="small text-secondary" id="catalog-count">0 закупок</div>
             </div>
             <div class="d-flex flex-wrap gap-2">
+              <button type="button" class="btn btn-outline-primary btn-sm" id="btn-export-csv">Выгрузить CSV</button>
               <button type="button" class="btn btn-outline-dark btn-sm" id="btn-refresh-cat">Обновить данные</button>
               <button type="button" class="btn btn-outline-danger btn-sm" id="btn-clear-cat">Очистить закупки</button>
               <button type="button" class="btn btn-outline-secondary btn-sm" id="btn-clear-jobs">Очистить прогресс</button>
             </div>
           </div>
-          <input type="search" class="form-control form-control-sm mb-2" id="catalog-q" placeholder="Поиск по номеру или объекту" />
-          <div class="catalog-filters mb-3">
+          <input type="search" class="form-control form-control-sm mb-2" id="catalog-q" placeholder="Поиск по объекту, заказчику, ИНН…" />
+          <div class="catalog-filters mb-2">
             <label class="form-check form-check-inline">
               <input class="form-check-input filt" type="checkbox" id="filt-docs" /> документы есть
+            </label>
+            <label class="form-check form-check-inline">
+              <input class="form-check-input filt" type="checkbox" id="filt-ready-ai" /> готовы к AI
+            </label>
+            <label class="form-check form-check-inline">
+              <input class="form-check-input filt" type="checkbox" id="filt-analyzing" /> анализируются
             </label>
             <label class="form-check form-check-inline">
               <input class="form-check-input filt" type="checkbox" id="filt-ai" /> AI готов
@@ -124,9 +118,27 @@
               <input class="form-check-input filt" type="checkbox" id="filt-suitable" /> подходит (да / с оговорками)
             </label>
             <label class="form-check form-check-inline">
+              <input class="form-check-input filt" type="checkbox" id="filt-skip" /> не подходит
+            </label>
+            <label class="form-check form-check-inline">
+              <input class="form-check-input filt" type="checkbox" id="filt-error" /> ошибка AI
+            </label>
+            <label class="form-check form-check-inline">
               <input class="form-check-input filt" type="checkbox" id="filt-ready" /> к просмотру
             </label>
-            <span class="small text-secondary ms-2" id="filt-count"></span>
+          </div>
+          <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+            <label class="small text-secondary mb-0" for="catalog-sort">Сортировка</label>
+            <select class="form-select form-select-sm" id="catalog-sort" style="max-width:14rem">
+              <option value="end">по сроку подачи</option>
+              <option value="updated">по обновлению</option>
+              <option value="nmck-desc">НМЦК ↓</option>
+              <option value="nmck-asc">НМЦК ↑</option>
+              <option value="ai-status">по статусу AI</option>
+              <option value="rec">по рекомендации</option>
+              <option value="customer">по заказчику</option>
+            </select>
+            <span class="small text-secondary ms-auto" id="filt-count"></span>
           </div>
           <div id="tenders-grid" class="tenders-grid"></div>
           <p id="catalog-empty" class="text-secondary small mt-3 hidden">В этой категории пока нет закупок.</p>
@@ -140,11 +152,11 @@
     <div class="modal-dialog modal-dialog-centered">
       <div class="modal-content border-0 shadow">
         <div class="modal-header border-0">
-          <h5 class="modal-title">Загрузка CSV</h5>
+          <h5 class="modal-title">Добавить закупки</h5>
           <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
         </div>
         <div class="modal-body pt-0">
-          <p class="small text-secondary">Сначала проверка на ЕИС по номеру, затем адаптер по ссылке (mos, tektorg…).</p>
+          <p class="small text-secondary">Файл с двумя колонками: номер закупки и сайт (csv, xml, xlsx). Сначала проверка на ЕИС по номеру, затем адаптер по ссылке (mos, tektorg…).</p>
           <div class="mb-3">
             <label class="form-label">Категория</label>
             <select class="form-select" id="upload-category"></select>
@@ -157,8 +169,8 @@
             <input type="text" class="form-control" id="upload-new-title" placeholder="Название ключа" />
           </div>
           <div class="mb-3">
-            <label class="form-label">CSV файлы</label>
-            <input type="file" class="form-control" id="upload-files" accept=".csv,text/csv,text/plain" multiple />
+            <label class="form-label">Файлы (csv, xml, xlsx)</label>
+            <input type="file" class="form-control" id="upload-files" accept=".csv,.xml,.xlsx,.xmls,text/csv,text/xml,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/plain" multiple />
           </div>
           <div class="small text-secondary" id="upload-status"></div>
         </div>
@@ -258,7 +270,45 @@
     </div>
   </div>
 
+  <!-- CSV export modal -->
+  <div class="modal fade" id="exportCsvModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content border-0 shadow">
+        <div class="modal-header border-0">
+          <h5 class="modal-title">Выгрузка CSV</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body pt-0">
+          <p class="small text-secondary mb-2">Категория: <strong id="export-cat-title">—</strong>. Колонки:</p>
+          <div class="export-cols" id="export-cols">
+            <label class="form-check"><input class="form-check-input export-col" type="checkbox" value="reg_number" checked /> № закупки</label>
+            <label class="form-check"><input class="form-check-input export-col" type="checkbox" value="object_name" checked /> Описание / объект</label>
+            <label class="form-check"><input class="form-check-input export-col" type="checkbox" value="customer_inn" checked /> ИНН заказчика</label>
+            <label class="form-check"><input class="form-check-input export-col" type="checkbox" value="customer_name" checked /> Название заказчика</label>
+            <label class="form-check"><input class="form-check-input export-col" type="checkbox" value="assess_summary" checked /> Отзыв AI-анализ</label>
+            <label class="form-check"><input class="form-check-input export-col" type="checkbox" value="recommendation" checked /> Рекомендация</label>
+            <label class="form-check"><input class="form-check-input export-col" type="checkbox" value="assess_score" /> Оценка AI</label>
+            <label class="form-check"><input class="form-check-input export-col" type="checkbox" value="nmck" checked /> НМЦК</label>
+            <label class="form-check"><input class="form-check-input export-col" type="checkbox" value="application_end" checked /> Окончание подачи</label>
+            <label class="form-check"><input class="form-check-input export-col" type="checkbox" value="analysis_status" /> Статус AI</label>
+            <label class="form-check"><input class="form-check-input export-col" type="checkbox" value="ingest_status" /> Статус сбора</label>
+            <label class="form-check"><input class="form-check-input export-col" type="checkbox" value="law" /> Закон</label>
+            <label class="form-check"><input class="form-check-input export-col" type="checkbox" value="source_site" /> Площадка</label>
+          </div>
+          <div class="form-check mt-3">
+            <input class="form-check-input" type="checkbox" id="export-filtered-only" checked />
+            <label class="form-check-label" for="export-filtered-only">Только отфильтрованные карточки</label>
+          </div>
+        </div>
+        <div class="modal-footer border-0">
+          <button type="button" class="btn btn-light" data-bs-dismiss="modal">Отмена</button>
+          <button type="button" class="btn btn-dark" id="btn-export-csv-go">Скачать</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-  <script src="/app.js"></script>
+  <script src="/app.js?v=20260807a"></script>
 </body>
 </html>

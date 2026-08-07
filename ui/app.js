@@ -57,6 +57,18 @@ let state = {
   aiConfigs: [],
   activeAiConfigId: null,
   editingAiConfigId: null,
+  catalogTenders: [],
+  aiPace: {
+    lastAnalyzed: null,
+    lastAt: null,
+    samplesMs: (() => {
+      try {
+        const raw = localStorage.getItem("zakupki_ai_pace_ms");
+        const arr = raw ? JSON.parse(raw) : [];
+        return Array.isArray(arr) ? arr.filter((n) => Number.isFinite(n) && n > 0).slice(-40) : [];
+      } catch { return []; }
+    })(),
+  },
 };
 
 const uploadModal = () => bootstrap.Modal.getOrCreateInstance($("#uploadModal"));
@@ -117,6 +129,17 @@ function markIcon(ok) {
   if (ok === false) return `<span class="mark bad" title="ошибка">✕</span>`;
   return `<span class="mark pending" title="в процессе">…</span>`;
 }
+/** Компактная строка для каталожной карточки: без шкал. */
+function progressLine(t) {
+  const collectPct = t.collect_pct ?? 0;
+  const aiPct = t.ai_pct ?? 0;
+  return `
+    <div class="progress-line">
+      <span class="prog-item"><span class="bar-label">Сбор</span> <span class="bar-pct">${collectPct}%</span> ${markIcon(t.collect_ok)}</span>
+      <span class="prog-item"><span class="bar-label">AI</span> <span class="bar-pct">${aiPct}%</span> ${markIcon(t.ai_ok)}</span>
+    </div>`;
+}
+/** Полные полосы — в модалке. */
 function dualBars(t) {
   const collectPct = t.collect_pct ?? 0;
   const aiPct = t.ai_pct ?? 0;
@@ -137,6 +160,132 @@ function dualBars(t) {
     </div>`;
 }
 
+function isAIEligible(t) {
+  const hasText = (t.docs_with_text || 0) > 0;
+  return !!t.ready_for_ai
+    || hasText
+    || t.analysis_status === "analyzed"
+    || t.analysis_status === "analyzing"
+    || t.analysis_status === "other";
+}
+
+function pluralRu(n, one, few, many) {
+  const abs = Math.abs(n) % 100;
+  const n1 = abs % 10;
+  if (abs > 10 && abs < 20) return many;
+  if (n1 === 1) return one;
+  if (n1 >= 2 && n1 <= 4) return few;
+  return many;
+}
+
+/** «3 минуты», «1 час 41 минута» */
+function fmtRuHM(sec) {
+  if (sec == null || !Number.isFinite(sec) || sec < 0) return null;
+  sec = Math.max(0, Math.round(sec));
+  if (sec < 60) {
+    return `${Math.max(1, sec)} ${pluralRu(Math.max(1, sec), "секунда", "секунды", "секунд")}`;
+  }
+  let m = Math.round(sec / 60);
+  if (m < 1) m = 1;
+  const h = Math.floor(m / 60);
+  const rm = m % 60;
+  if (h === 0) return `${m} ${pluralRu(m, "минута", "минуты", "минут")}`;
+  if (rm === 0) return `${h} ${pluralRu(h, "час", "часа", "часов")}`;
+  return `${h} ${pluralRu(h, "час", "часа", "часов")} ${rm} ${pluralRu(rm, "минута", "минуты", "минут")}`;
+}
+
+function avgFromUpdatedGaps(tenders) {
+  const done = (tenders || [])
+    .filter((t) => t.analysis_status === "analyzed" && t.updated_at)
+    .map((t) => ({ id: t.id, at: new Date(t.updated_at).getTime() }))
+    .filter((x) => Number.isFinite(x.at))
+    .sort((a, b) => a.at - b.at);
+  const gaps = [];
+  for (let i = 1; i < done.length; i++) {
+    const gap = done[i].at - done[i - 1].at;
+    // игнор пауз > 2 ч и слишком быстрых глюков
+    if (gap >= 20_000 && gap <= 2 * 3600_000) gaps.push(gap);
+  }
+  if (!gaps.length) return null;
+  const recent = gaps.slice(-15);
+  return recent.reduce((a, b) => a + b, 0) / recent.length;
+}
+
+function noteAIPace(analyzedCount) {
+  const pace = state.aiPace;
+  const now = Date.now();
+  if (pace.lastAnalyzed != null && pace.lastAt != null && analyzedCount > pace.lastAnalyzed) {
+    const delta = analyzedCount - pace.lastAnalyzed;
+    const elapsed = now - pace.lastAt;
+    if (delta > 0 && elapsed >= 15_000) {
+      const per = elapsed / delta;
+      if (per >= 20_000 && per <= 2 * 3600_000) {
+        pace.samplesMs.push(per);
+        if (pace.samplesMs.length > 40) pace.samplesMs = pace.samplesMs.slice(-40);
+        try { localStorage.setItem("zakupki_ai_pace_ms", JSON.stringify(pace.samplesMs)); } catch { /* ignore */ }
+      }
+    }
+  }
+  pace.lastAnalyzed = analyzedCount;
+  pace.lastAt = now;
+}
+
+function avgAIPaceMs(tenders) {
+  const samples = state.aiPace.samplesMs || [];
+  if (samples.length >= 2) {
+    return samples.reduce((a, b) => a + b, 0) / samples.length;
+  }
+  if (samples.length === 1) return samples[0];
+  return avgFromUpdatedGaps(tenders);
+}
+
+function renderAICoverage(list) {
+  const tenders = list || state.catalogTenders || [];
+  let eligible = 0, analyzed = 0, analyzing = 0;
+  for (const t of tenders) {
+    if (!isAIEligible(t)) continue;
+    eligible++;
+    if (t.analysis_status === "analyzed") analyzed++;
+    else if (t.analysis_status === "analyzing") analyzing++;
+  }
+  const remaining = Math.max(0, eligible - analyzed);
+  const pct = eligible ? Math.round((analyzed / eligible) * 100) : 0;
+  noteAIPace(analyzed);
+
+  const el = $("#ai-coverage-pct");
+  if (el) {
+    el.textContent = pct + "%";
+    el.title = eligible
+      ? `Проанализировано ${analyzed} из ${eligible} доступных к AI` + (analyzing ? ` · сейчас ${analyzing}` : "")
+      : "Нет карточек, доступных к AI";
+  }
+
+  const etaEl = $("#ai-eta");
+  if (!etaEl) return;
+  const avgMs = avgAIPaceMs(tenders);
+  if (!eligible) {
+    etaEl.textContent = "";
+    etaEl.title = "";
+    return;
+  }
+  if (!avgMs) {
+    etaEl.textContent = remaining ? "(оценка темпа…)" : "";
+    etaEl.title = "Накопим статистику после первых завершённых AI-анализов";
+    return;
+  }
+  const avgSec = avgMs / 1000;
+  const avgTxt = fmtRuHM(avgSec);
+  if (remaining <= 0) {
+    etaEl.textContent = `(1 закупка / ${avgTxt})`;
+    etaEl.title = `Среднее время на одну закупку: ${avgTxt}`;
+    return;
+  }
+  const etaSec = (remaining * avgMs) / 1000;
+  const etaTxt = fmtRuHM(etaSec);
+  etaEl.textContent = `(1 закупка / ${avgTxt}; ${etaTxt})`;
+  etaEl.title = `Среднее ${avgTxt} на закупку · осталось ${remaining} · ориентир ${etaTxt}`;
+}
+
 async function refreshAll() {
   const [cats, stats, jobs, workers] = await Promise.all([
     api("/categories"),
@@ -151,6 +300,7 @@ async function refreshAll() {
   renderCategories();
   renderOverall();
   renderWorkers();
+  renderAICoverage();
   renderJobs();
   if (state.activeSlug) {
     await renderCatalog();
@@ -213,28 +363,26 @@ function renderCategories() {
     box.appendChild(btn);
   }
   if (!state.categories.length) {
-    box.innerHTML = `<div class="small text-secondary">Пока нет категорий — загрузите CSV</div>`;
+    box.innerHTML = `<div class="small text-secondary">Пока нет категорий — загрузите файл</div>`;
   }
 }
 
 function renderOverall() {
-  let overallDone = 0, overallTotal = 0, eta = null, db = 0, queued = 0, running = 0;
+  let overallDone = 0, overallTotal = 0;
   for (const j of state.jobs) {
     const p = jobProgress(j);
     overallDone += p.done;
     overallTotal += p.total;
-    if (p.etaSec != null && p.remaining > 0) eta = Math.max(eta || 0, p.etaSec);
-  }
-  for (const s of state.stats) {
-    db += s.tenders_in_db || 0;
-    queued += s.queued || 0;
-    running += s.running || 0;
   }
   const pct = overallTotal ? Math.round((overallDone / overallTotal) * 100) : 0;
-  $("#overall-pct").textContent = pct + "%";
-  $("#overall-bar").style.width = pct + "%";
-  $("#overall-meta").textContent = `в БД: ${db} · готово ${overallDone}/${overallTotal} · очередь ${queued} · в работе ${running}`;
-  $("#overall-eta").textContent = `осталось ≈ ${fmtDuration(eta)}`;
+  const pctEl = $("#overall-pct");
+  if (pctEl) pctEl.textContent = pct + "%";
+  const prog = $("#overall-progress");
+  if (prog) {
+    prog.title = overallTotal
+      ? `Показать задачи · готово ${overallDone} из ${overallTotal}`
+      : "Показать задачи";
+  }
 }
 
 function renderJobs() {
@@ -310,7 +458,9 @@ async function renderCatalog() {
   const params = new URLSearchParams({ category: state.activeSlug });
   if (q) params.set("q", q);
   const tenders = await api("/tenders?" + params);
-  const filtered = (tenders || []).filter(matchCatalogFilter);
+  state.catalogTenders = tenders || [];
+  let filtered = state.catalogTenders.filter(matchCatalogFilter);
+  filtered = sortCatalog(filtered);
   const grid = $("#tenders-grid");
   grid.innerHTML = "";
   for (const t of filtered) {
@@ -320,30 +470,45 @@ async function renderCatalog() {
     const rec = t.recommendation ? `<span class="pill">${escapeHtml(label(REC_LABELS, t.recommendation))}</span>` : "";
     const card = document.createElement("article");
     card.className = `tender-card ${tone}`;
-    const canAI = t.ready_for_ai || t.analysis_status === "analyzed" || t.analysis_status === "other" || t.ingest_status === "ok";
+    card.tabIndex = 0;
+    // AI после сбора с текстом документов (или повтор после анализа/ошибки).
+    const canAI = !!t.ready_for_ai ||
+      ((t.ingest_status === "ok" || t.docs_with_text > 0) && (t.docs_with_text || 0) > 0) ||
+      t.analysis_status === "analyzed" || t.analysis_status === "other";
+    const aiBusy = t.analysis_status === "analyzing";
+    const customer = [t.customer_name, t.customer_inn ? `ИНН ${t.customer_inn}` : ""]
+      .filter(Boolean).join(" · ") || "Заказчик не указан";
+    const feedback = t.assess_summary
+      ? `<div class="tender-ai-feedback">${escapeHtml(t.assess_summary)}</div>` : "";
     card.innerHTML = `
-      <div class="tender-card-top">
-        <div>
-          <div class="tender-reg">${escapeHtml(t.reg_number)}</div>
-          <div class="tender-obj">${escapeHtml(t.object_name || "—")}</div>
-        </div>
-        <div class="tender-meta">
-          <span class="pill">${escapeHtml(label(ANALYSIS_LABELS, t.analysis_status))}</span>
-          ${rec}
-        </div>
+      <div class="tender-head">
+        <div class="tender-obj">${escapeHtml(t.object_name || "Без названия")}</div>
+        <div class="tender-customer">${escapeHtml(customer)}</div>
       </div>
+      ${feedback}
       <div class="tender-facts">
         <span>Окончание: ${fmtDate(t.application_end)}</span>
         <span>НМЦК: ${money(t.nmck)}</span>
         <span>Док.: ${t.docs_with_text || 0}/${t.docs_total || 0}</span>
       </div>
-      ${dualBars(t)}
-      <div class="tender-actions">
-        <button type="button" class="btn btn-sm btn-outline-dark btn-open">Открыть</button>
-        <button type="button" class="btn btn-sm btn-outline-primary btn-ai" ${canAI ? "" : "disabled"}>AI</button>
+      ${progressLine(t)}
+      <div class="tender-card-foot">
+        <span class="tender-reg-soft">${escapeHtml(t.reg_number || "")}</span>
+        <span class="pill tender-status-pill">${escapeHtml(label(ANALYSIS_LABELS, t.analysis_status))}</span>
+        ${rec}
+        <button type="button" class="btn btn-sm btn-outline-primary btn-ai" ${canAI && !aiBusy ? "" : "disabled"}>
+          ${aiBusy ? "…" : "AI"}
+        </button>
       </div>`;
-    card.querySelector(".btn-open").addEventListener("click", () => openTender(t.id));
-    card.querySelector(".btn-ai").addEventListener("click", () => analyzeFromCard(t.id, card.querySelector(".btn-ai")));
+    card.addEventListener("click", (e) => {
+      if (e.target.closest(".btn-ai")) return;
+      openTender(t.id);
+    });
+    card.querySelector(".btn-ai").addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      analyzeFromCard(t.id, card.querySelector(".btn-ai"));
+    });
     grid.appendChild(card);
   }
   const total = (tenders || []).length;
@@ -351,26 +516,78 @@ async function renderCatalog() {
     ? `${total} карточек`
     : `показано ${filtered.length} из ${total}`;
   $("#catalog-empty").classList.toggle("hidden", filtered.length > 0);
+  renderAICoverage(state.catalogTenders);
 }
 
 function matchCatalogFilter(t) {
   const docs = $("#filt-docs")?.checked;
+  const readyAI = $("#filt-ready-ai")?.checked;
+  const analyzing = $("#filt-analyzing")?.checked;
   const ai = $("#filt-ai")?.checked;
   const suitable = $("#filt-suitable")?.checked;
+  const skip = $("#filt-skip")?.checked;
+  const err = $("#filt-error")?.checked;
   const ready = $("#filt-ready")?.checked;
-  if (!docs && !ai && !suitable && !ready) return true;
+  const any = docs || readyAI || analyzing || ai || suitable || skip || err || ready;
+  if (!any) return true;
 
   const hasDocs = (t.docs_total || 0) > 0 && (t.docs_with_text || 0) > 0;
   const aiDone = t.analysis_status === "analyzed";
   const rec = (t.recommendation || "").toLowerCase();
   const isSuitable = aiDone && (rec === "participate" || rec === "caution");
+  const isSkip = aiDone && rec === "skip";
   const isReady = hasDocs && aiDone && isSuitable;
+  const isReadyAI = !!t.ready_for_ai || (t.ingest_status === "ok" && hasDocs && (t.analysis_status === "none" || !t.analysis_status));
 
   if (ready) return isReady;
   if (docs && !hasDocs) return false;
+  if (readyAI && !isReadyAI) return false;
+  if (analyzing && t.analysis_status !== "analyzing") return false;
   if (ai && !aiDone) return false;
   if (suitable && !isSuitable) return false;
+  if (skip && !isSkip) return false;
+  if (err && t.analysis_status !== "other") return false;
   return true;
+}
+
+function sortCatalog(list) {
+  const mode = $("#catalog-sort")?.value || "end";
+  const arr = [...list];
+  const recRank = (t) => {
+    const r = (t.recommendation || "").toLowerCase();
+    if (r === "participate") return 0;
+    if (r === "caution") return 1;
+    if (r === "unknown") return 2;
+    if (r === "skip") return 3;
+    return 4;
+  };
+  const aiRank = (t) => {
+    const s = t.analysis_status || "none";
+    return ({ analyzing: 0, none: 1, other: 2, analyzed: 3 }[s] ?? 5);
+  };
+  arr.sort((a, b) => {
+    switch (mode) {
+      case "updated":
+        return String(b.updated_at || "").localeCompare(String(a.updated_at || ""));
+      case "nmck-desc":
+        return (Number(b.nmck) || 0) - (Number(a.nmck) || 0);
+      case "nmck-asc":
+        return (Number(a.nmck) || 0) - (Number(b.nmck) || 0);
+      case "ai-status":
+        return aiRank(a) - aiRank(b);
+      case "rec":
+        return recRank(a) - recRank(b);
+      case "customer":
+        return String(a.customer_name || "").localeCompare(String(b.customer_name || ""), "ru");
+      case "end":
+      default: {
+        const ae = a.application_end || "9999";
+        const be = b.application_end || "9999";
+        return String(ae).localeCompare(String(be));
+      }
+    }
+  });
+  return arr;
 }
 
 async function analyzeFromCard(id, btn) {
@@ -378,7 +595,7 @@ async function analyzeFromCard(id, btn) {
   btn.disabled = true;
   btn.textContent = "…";
   try {
-    const res = await api(`/tenders/${id}/analyze`, {
+    await api(`/tenders/${id}/analyze`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -386,17 +603,9 @@ async function analyzeFromCard(id, btn) {
         config_id: state.activeAiConfigId || $("#ai-config-select")?.value || "",
       }),
     });
-    const summary = (res.assessment && res.assessment.summary) || "";
-    const details = res.assessment && res.assessment.details;
-    const rec = details && details.recommendation;
-    alert(
-      (rec ? `${label(REC_LABELS, rec)}\n\n` : "") +
-      (summary ? summary.slice(0, 1200) : "Анализ сохранён")
-    );
     await renderCatalog();
   } catch (err) {
-    alert("AI-анализ: " + err.message);
-  } finally {
+    console.warn("AI-анализ:", err.message);
     btn.disabled = false;
     btn.textContent = prev;
   }
@@ -404,11 +613,13 @@ async function analyzeFromCard(id, btn) {
 
 async function openTender(id) {
   state.currentTenderId = id;
-  const [t, docs, assessment] = await Promise.all([
+  const listed = (state.catalogTenders || []).find((x) => String(x.id) === String(id)) || {};
+  const [t, docs, assessmentRaw] = await Promise.all([
     api(`/tenders/${id}`),
     api(`/tenders/${id}/documents?text=1`),
     api(`/tenders/${id}/assessment`).catch(() => null),
   ]);
+  const assessment = assessmentRaw && typeof assessmentRaw === "object" ? assessmentRaw : null;
   $("#tender-title").textContent = t.reg_number;
   const sel = $("#tender-analysis");
   sel.innerHTML = ANALYSIS.filter((a) => a !== "analyzing" || t.analysis_status === "analyzing").map((a) =>
@@ -439,11 +650,29 @@ async function openTender(id) {
   let payloadPreview = "";
   try {
     const pretty = JSON.stringify(typeof t.payload === "string" ? JSON.parse(t.payload) : t.payload, null, 2);
-    payloadPreview = `<h3>Полные данные карточки</h3><pre>${escapeHtml(pretty.slice(0, 12000))}</pre>`;
+    payloadPreview = `<details class="payload-details">
+      <summary>Полные данные карточки</summary>
+      <pre>${escapeHtml(pretty.slice(0, 12000))}</pre>
+    </details>`;
   } catch { /* ignore */ }
 
-  const rec = (assessment && assessment.details && assessment.details.recommendation)
-    || t.recommendation || "";
+  const details = parseAssessmentDetails(assessment);
+  const summaryText = (assessment && assessment.summary)
+    || t.assess_summary
+    || listed.assess_summary
+    || (details.error ? String(details.error) : "")
+    || "";
+  const scoreVal = (assessment && assessment.score != null)
+    ? assessment.score
+    : (t.assess_score != null ? t.assess_score : listed.assess_score);
+  const risks = Array.isArray(details.risks) ? details.risks.map((r) => String(r)).filter(Boolean) : [];
+  const actions = Array.isArray(details.actions) ? details.actions.map((a) => String(a)).filter(Boolean) : [];
+  const actionsHtml = actions.length
+    ? `<ul class="mb-0 ai-actions-list">${actions.map((a) => `<li>${escapeHtml(a)}</li>`).join("")}</ul>`
+    : `<p class="small text-secondary mb-0">действий нет</p>`;
+  const risksHtml = risks.length
+    ? `<ul class="mb-0">${risks.map((r) => `<li>${escapeHtml(r)}</li>`).join("")}</ul>`
+    : `<p class="small text-secondary mb-0">нет</p>`;
 
   $("#tender-body").innerHTML = `
     ${dualBars(t)}
@@ -454,16 +683,42 @@ async function openTender(id) {
     <p><strong>Опубликовано:</strong> ${fmtDate(t.published_at)} · <strong>Обновлено на сайте:</strong> ${fmtDate(t.updated_on_site)}
       · <strong>Окончание заявок:</strong> ${fmtDate(t.application_end)}</p>
     ${cust}
+
+    <section class="tender-ai-section">
+      <h3>Оценка AI</h3>
+      <div class="ai-block">
+        <strong>Рекомендации</strong>
+        <div class="mt-1">${actionsHtml}</div>
+      </div>
+      <div class="ai-block">
+        <label class="form-label mb-1" for="dlg-assess-summary"><strong>Описание ответа от AI-анализ</strong></label>
+        <textarea class="form-control ai-summary-box" id="dlg-assess-summary" rows="6">${escapeHtml(summaryText)}</textarea>
+      </div>
+      <div class="ai-block">
+        <strong>Ограничения</strong>
+        ${risksHtml}
+      </div>
+      <label class="form-label mt-3">Оценка (0–1)</label>
+      <input type="number" class="form-control" id="dlg-assess-score" step="0.1" value="${scoreVal != null && scoreVal !== "" ? escapeHtml(String(scoreVal)) : ""}" />
+    </section>
+
     <h3>Документы (${(docs || []).length})</h3>
     <ul class="doc-list">${docItems || "<li>нет</li>"}</ul>
-    <h3>Оценка AI</h3>
-    <p>${rec ? `<strong>${escapeHtml(label(REC_LABELS, rec))}</strong> · ` : ""}оценка
-      <strong>${assessment && assessment.score != null ? assessment.score : "—"}</strong></p>
-    <label class="form-label">Оценка (0–1)</label>
-    <input type="number" class="form-control" id="dlg-assess-score" step="0.1" value="${assessment && assessment.score != null ? assessment.score : ""}" />
     ${payloadPreview}
   `;
   tenderModal().show();
+}
+
+function parseAssessmentDetails(assessment) {
+  let d = assessment && assessment.details;
+  if (d == null) return {};
+  if (typeof d === "string") {
+    try { d = JSON.parse(d); } catch { return {}; }
+  }
+  if (typeof d === "string") {
+    try { d = JSON.parse(d); } catch { return {}; }
+  }
+  return d && typeof d === "object" && !Array.isArray(d) ? d : {};
 }
 
 /* events */
@@ -508,7 +763,7 @@ $("#upload-submit").addEventListener("click", async () => {
   }
 });
 
-$("#overall-bar-wrap").addEventListener("click", () => {
+$("#overall-progress")?.addEventListener("click", () => {
   $("#jobs-panel").classList.toggle("hidden");
 });
 
@@ -545,7 +800,17 @@ $("#auto-ai-toggle").addEventListener("change", async (e) => {
     });
     renderWorkers();
     if (on) {
-      console.info("Авто AI включён — берёт карточки после завершения сбора (ingest ok) с текстом документов");
+      const ready = state.workers.ready_for_ai;
+      const requeued = state.workers.requeued_failed;
+      let msg = "Авто AI включён — берёт карточки с текстом документов (ingest ok).";
+      if (requeued) msg += ` Вернул в очередь упавшие: ${requeued}.`;
+      if (ready != null) msg += ` Готово к AI: ${ready}.`;
+      if (ready === 0) {
+        alert(msg + "\n\nНет карточек со статусом analysis=none и текстом в documents. " +
+          "Дождитесь сбора или перезапустите ingest.");
+      } else {
+        console.info(msg);
+      }
     }
   } catch (err) {
     e.target.checked = !on;
@@ -721,6 +986,82 @@ $("#catalog-q").addEventListener("input", () => {
   window.__q = setTimeout(renderCatalog, 250);
 });
 $$(".filt").forEach((el) => el.addEventListener("change", () => renderCatalog()));
+$("#catalog-sort")?.addEventListener("change", () => renderCatalog());
+
+const CSV_COL_LABELS = {
+  reg_number: "№ закупки",
+  object_name: "Описание",
+  customer_inn: "ИНН заказчика",
+  customer_name: "Название заказчика",
+  assess_summary: "Отзыв AI",
+  recommendation: "Рекомендация",
+  assess_score: "Оценка AI",
+  nmck: "НМЦК",
+  application_end: "Окончание подачи",
+  analysis_status: "Статус AI",
+  ingest_status: "Статус сбора",
+  law: "Закон",
+  source_site: "Площадка",
+};
+
+function csvEscape(v) {
+  const s = String(v ?? "");
+  if (/[;"\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+  return s;
+}
+
+function tenderCsvValue(t, key) {
+  switch (key) {
+    case "recommendation":
+      return label(REC_LABELS, t.recommendation, t.recommendation || "");
+    case "analysis_status":
+      return label(ANALYSIS_LABELS, t.analysis_status, t.analysis_status || "");
+    case "ingest_status":
+      return label(INGEST_LABELS, t.ingest_status, t.ingest_status || "");
+    case "application_end":
+      return fmtDate(t.application_end);
+    case "nmck":
+      return t.nmck != null ? String(t.nmck) : "";
+    case "assess_score":
+      return t.assess_score != null ? String(t.assess_score) : "";
+    default:
+      return t[key] ?? "";
+  }
+}
+
+function downloadCategoryCSV() {
+  const cols = $$(".export-col:checked").map((el) => el.value);
+  if (!cols.length) {
+    console.warn("CSV: выберите хотя бы одну колонку");
+    return;
+  }
+  const onlyFiltered = $("#export-filtered-only")?.checked;
+  let rows = state.catalogTenders || [];
+  if (onlyFiltered) {
+    rows = sortCatalog(rows.filter(matchCatalogFilter));
+  } else {
+    rows = sortCatalog(rows);
+  }
+  const header = cols.map((c) => csvEscape(CSV_COL_LABELS[c] || c)).join(";");
+  const lines = rows.map((t) => cols.map((c) => csvEscape(tenderCsvValue(t, c))).join(";"));
+  const bom = "\uFEFF";
+  const blob = new Blob([bom + [header, ...lines].join("\n")], { type: "text/csv;charset=utf-8" });
+  const a = document.createElement("a");
+  const slug = state.activeSlug || "category";
+  a.href = URL.createObjectURL(blob);
+  a.download = `zakupki-${slug}-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+  bootstrap.Modal.getOrCreateInstance($("#exportCsvModal")).hide();
+}
+
+$("#btn-export-csv")?.addEventListener("click", () => {
+  if (!state.activeSlug) return;
+  const cat = state.categories.find((c) => c.slug === state.activeSlug);
+  $("#export-cat-title").textContent = cat ? cat.title : state.activeSlug;
+  bootstrap.Modal.getOrCreateInstance($("#exportCsvModal")).show();
+});
+$("#btn-export-csv-go")?.addEventListener("click", () => downloadCategoryCSV());
 
 $("#btn-clear-cat").addEventListener("click", async () => {
   if (!state.activeSlug || !confirm("Удалить все закупки этой категории из СУБД?")) return;
@@ -767,14 +1108,16 @@ $("#tender-save").addEventListener("click", async () => {
   });
   const scoreRaw = $("#dlg-assess-score")?.value;
   const score = scoreRaw === "" ? null : Number(scoreRaw);
+  const summary = $("#dlg-assess-summary")?.value ?? "";
   const cur = await api(`/tenders/${state.currentTenderId}/assessment`).catch(() => null);
+  const details = { ...parseAssessmentDetails(cur) };
   await api(`/tenders/${state.currentTenderId}/assessment`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      summary: (cur && cur.summary) || "",
+      summary,
       score,
-      details: (cur && cur.details) || {},
+      details,
     }),
   });
   tenderModal().hide();
@@ -802,9 +1145,9 @@ $("#tender-analyze").addEventListener("click", async () => {
   const btn = $("#tender-analyze");
   const prev = btn.textContent;
   btn.disabled = true;
-  btn.textContent = "Анализ… (порции в LM Studio)";
+  btn.textContent = "Анализ…";
   try {
-    const res = await api(`/tenders/${state.currentTenderId}/analyze`, {
+    await api(`/tenders/${state.currentTenderId}/analyze`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -812,17 +1155,10 @@ $("#tender-analyze").addEventListener("click", async () => {
         config_id: state.activeAiConfigId || $("#ai-config-select")?.value || "",
       }),
     });
-    const summary = (res.assessment && res.assessment.summary) || "";
-    const details = res.assessment && res.assessment.details;
-    const rec = details && details.recommendation;
-    alert(
-      (rec ? `${label(REC_LABELS, rec)}\n\n` : "") +
-      (summary ? summary.slice(0, 1200) : "Анализ сохранён")
-    );
     await openTender(state.currentTenderId);
     renderCatalog();
   } catch (err) {
-    alert("AI-анализ: " + err.message);
+    console.warn("AI-анализ:", err.message);
   } finally {
     btn.disabled = false;
     btn.textContent = prev;
