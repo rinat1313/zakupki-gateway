@@ -721,27 +721,6 @@ function parseAssessmentDetails(assessment) {
   return d && typeof d === "object" && !Array.isArray(d) ? d : {};
 }
 
-function resolveRecommendation(assessment, t, listed, details) {
-  const raw = details.recommendation
-    || details.Recommendation
-    || t.recommendation
-    || listed.recommendation
-    || "";
-  let rec = String(raw || "").trim().toLowerCase();
-  if (REC_LABELS[rec]) return rec;
-  const blob = [
-    raw,
-    assessment && assessment.summary,
-    t.assess_summary,
-    listed.assess_summary,
-  ].filter(Boolean).join(" ").toLowerCase();
-  if (/\bparticipate\b|целесообразно|\bда\b.*участ|участ.*да/.test(blob)) return "participate";
-  if (/\bcaution\b|оговорк/.test(blob)) return "caution";
-  if (/\bskip\b|не стоит|нельзя|не подходит/.test(blob)) return "skip";
-  if (/\bunknown\b|неясно|мало данных/.test(blob)) return "unknown";
-  return "";
-}
-
 /* events */
 $("#btn-upload").addEventListener("click", async () => {
   const sel = $("#upload-category");
