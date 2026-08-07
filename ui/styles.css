@@ -138,6 +138,17 @@ body {
 .app-header .pill {
   flex-shrink: 0;
 }
+.hdr-ai-eta {
+  font-size: .78rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  flex-shrink: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 22rem;
+}
 #btn-upload {
   flex: 0 0 auto;
 }
@@ -424,9 +435,13 @@ body {
   border: 1px solid var(--line);
   border-radius: 12px;
 }
-.ai-block ul {
+.ai-actions-list {
   margin: .35rem 0 0;
   padding-left: 1.1rem;
+}
+.ai-actions-list li {
+  margin: .25rem 0;
+  line-height: 1.4;
 }
 .ai-summary-box {
   min-height: 7rem;

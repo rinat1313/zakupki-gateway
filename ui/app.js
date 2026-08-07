@@ -58,6 +58,17 @@ let state = {
   activeAiConfigId: null,
   editingAiConfigId: null,
   catalogTenders: [],
+  aiPace: {
+    lastAnalyzed: null,
+    lastAt: null,
+    samplesMs: (() => {
+      try {
+        const raw = localStorage.getItem("zakupki_ai_pace_ms");
+        const arr = raw ? JSON.parse(raw) : [];
+        return Array.isArray(arr) ? arr.filter((n) => Number.isFinite(n) && n > 0).slice(-40) : [];
+      } catch { return []; }
+    })(),
+  },
 };
 
 const uploadModal = () => bootstrap.Modal.getOrCreateInstance($("#uploadModal"));
@@ -158,22 +169,121 @@ function isAIEligible(t) {
     || t.analysis_status === "other";
 }
 
+function pluralRu(n, one, few, many) {
+  const abs = Math.abs(n) % 100;
+  const n1 = abs % 10;
+  if (abs > 10 && abs < 20) return many;
+  if (n1 === 1) return one;
+  if (n1 >= 2 && n1 <= 4) return few;
+  return many;
+}
+
+/** «3 минуты», «1 час 41 минута» */
+function fmtRuHM(sec) {
+  if (sec == null || !Number.isFinite(sec) || sec < 0) return null;
+  sec = Math.max(0, Math.round(sec));
+  if (sec < 60) {
+    return `${Math.max(1, sec)} ${pluralRu(Math.max(1, sec), "секунда", "секунды", "секунд")}`;
+  }
+  let m = Math.round(sec / 60);
+  if (m < 1) m = 1;
+  const h = Math.floor(m / 60);
+  const rm = m % 60;
+  if (h === 0) return `${m} ${pluralRu(m, "минута", "минуты", "минут")}`;
+  if (rm === 0) return `${h} ${pluralRu(h, "час", "часа", "часов")}`;
+  return `${h} ${pluralRu(h, "час", "часа", "часов")} ${rm} ${pluralRu(rm, "минута", "минуты", "минут")}`;
+}
+
+function avgFromUpdatedGaps(tenders) {
+  const done = (tenders || [])
+    .filter((t) => t.analysis_status === "analyzed" && t.updated_at)
+    .map((t) => ({ id: t.id, at: new Date(t.updated_at).getTime() }))
+    .filter((x) => Number.isFinite(x.at))
+    .sort((a, b) => a.at - b.at);
+  const gaps = [];
+  for (let i = 1; i < done.length; i++) {
+    const gap = done[i].at - done[i - 1].at;
+    // игнор пауз > 2 ч и слишком быстрых глюков
+    if (gap >= 20_000 && gap <= 2 * 3600_000) gaps.push(gap);
+  }
+  if (!gaps.length) return null;
+  const recent = gaps.slice(-15);
+  return recent.reduce((a, b) => a + b, 0) / recent.length;
+}
+
+function noteAIPace(analyzedCount) {
+  const pace = state.aiPace;
+  const now = Date.now();
+  if (pace.lastAnalyzed != null && pace.lastAt != null && analyzedCount > pace.lastAnalyzed) {
+    const delta = analyzedCount - pace.lastAnalyzed;
+    const elapsed = now - pace.lastAt;
+    if (delta > 0 && elapsed >= 15_000) {
+      const per = elapsed / delta;
+      if (per >= 20_000 && per <= 2 * 3600_000) {
+        pace.samplesMs.push(per);
+        if (pace.samplesMs.length > 40) pace.samplesMs = pace.samplesMs.slice(-40);
+        try { localStorage.setItem("zakupki_ai_pace_ms", JSON.stringify(pace.samplesMs)); } catch { /* ignore */ }
+      }
+    }
+  }
+  pace.lastAnalyzed = analyzedCount;
+  pace.lastAt = now;
+}
+
+function avgAIPaceMs(tenders) {
+  const samples = state.aiPace.samplesMs || [];
+  if (samples.length >= 2) {
+    return samples.reduce((a, b) => a + b, 0) / samples.length;
+  }
+  if (samples.length === 1) return samples[0];
+  return avgFromUpdatedGaps(tenders);
+}
+
 function renderAICoverage(list) {
   const tenders = list || state.catalogTenders || [];
-  let eligible = 0, analyzed = 0;
+  let eligible = 0, analyzed = 0, analyzing = 0;
   for (const t of tenders) {
     if (!isAIEligible(t)) continue;
     eligible++;
     if (t.analysis_status === "analyzed") analyzed++;
+    else if (t.analysis_status === "analyzing") analyzing++;
   }
+  const remaining = Math.max(0, eligible - analyzed);
   const pct = eligible ? Math.round((analyzed / eligible) * 100) : 0;
+  noteAIPace(analyzed);
+
   const el = $("#ai-coverage-pct");
   if (el) {
     el.textContent = pct + "%";
     el.title = eligible
-      ? `Проанализировано ${analyzed} из ${eligible} доступных к AI`
+      ? `Проанализировано ${analyzed} из ${eligible} доступных к AI` + (analyzing ? ` · сейчас ${analyzing}` : "")
       : "Нет карточек, доступных к AI";
   }
+
+  const etaEl = $("#ai-eta");
+  if (!etaEl) return;
+  const avgMs = avgAIPaceMs(tenders);
+  if (!eligible) {
+    etaEl.textContent = "";
+    etaEl.title = "";
+    return;
+  }
+  if (!avgMs) {
+    etaEl.textContent = remaining ? "(оценка темпа…)" : "";
+    etaEl.title = "Накопим статистику после первых завершённых AI-анализов";
+    return;
+  }
+  const avgSec = avgMs / 1000;
+  const avgTxt = fmtRuHM(avgSec);
+  if (remaining <= 0) {
+    etaEl.textContent = `(1 закупка / ${avgTxt})`;
+    etaEl.title = `Среднее время на одну закупку: ${avgTxt}`;
+    return;
+  }
+  const etaSec = (remaining * avgMs) / 1000;
+  const etaTxt = fmtRuHM(etaSec);
+  etaEl.textContent = `(1 закупка / ${avgTxt}; ${etaTxt})`;
+  etaEl.title = `Среднее ${avgTxt} на закупку · осталось ${remaining} · ориентир ${etaTxt}`;
 }
 
 async function refreshAll() {
@@ -547,7 +657,6 @@ async function openTender(id) {
   } catch { /* ignore */ }
 
   const details = parseAssessmentDetails(assessment);
-  const rec = resolveRecommendation(assessment, t, listed, details);
   const summaryText = (assessment && assessment.summary)
     || t.assess_summary
     || listed.assess_summary
@@ -558,20 +667,12 @@ async function openTender(id) {
     : (t.assess_score != null ? t.assess_score : listed.assess_score);
   const risks = Array.isArray(details.risks) ? details.risks.map((r) => String(r)).filter(Boolean) : [];
   const actions = Array.isArray(details.actions) ? details.actions.map((a) => String(a)).filter(Boolean) : [];
-  const limits = [...risks];
-  for (const a of actions) {
-    if (!limits.includes(a)) limits.push(a);
-  }
-  if (details.error) {
-    const err = String(details.error);
-    if (err && !limits.includes(err)) limits.push(err);
-  }
-  const limitsHtml = limits.length
-    ? `<ul class="mb-0">${limits.map((r) => `<li>${escapeHtml(r)}</li>`).join("")}</ul>`
+  const actionsHtml = actions.length
+    ? `<ul class="mb-0 ai-actions-list">${actions.map((a) => `<li>${escapeHtml(a)}</li>`).join("")}</ul>`
+    : `<p class="small text-secondary mb-0">действий нет</p>`;
+  const risksHtml = risks.length
+    ? `<ul class="mb-0">${risks.map((r) => `<li>${escapeHtml(r)}</li>`).join("")}</ul>`
     : `<p class="small text-secondary mb-0">нет</p>`;
-  const recOptions = Object.entries(REC_LABELS).map(([k, v]) =>
-    `<option value="${escapeHtml(k)}" ${k === rec ? "selected" : ""}>${escapeHtml(v)}</option>`
-  ).join("");
 
   $("#tender-body").innerHTML = `
     ${dualBars(t)}
@@ -586,12 +687,8 @@ async function openTender(id) {
     <section class="tender-ai-section">
       <h3>Оценка AI</h3>
       <div class="ai-block">
-        <label class="form-label mb-1" for="dlg-assess-rec"><strong>Рекомендации</strong></label>
-        <select class="form-select" id="dlg-assess-rec">
-          <option value="">— не задана —</option>
-          ${recOptions}
-        </select>
-        ${scoreVal != null && scoreVal !== "" ? `<p class="small text-secondary mb-0 mt-2">оценка AI: <strong>${escapeHtml(String(scoreVal))}</strong></p>` : ""}
+        <strong>Рекомендации</strong>
+        <div class="mt-1">${actionsHtml}</div>
       </div>
       <div class="ai-block">
         <label class="form-label mb-1" for="dlg-assess-summary"><strong>Описание ответа от AI-анализ</strong></label>
@@ -599,7 +696,7 @@ async function openTender(id) {
       </div>
       <div class="ai-block">
         <strong>Ограничения</strong>
-        ${limitsHtml}
+        ${risksHtml}
       </div>
       <label class="form-label mt-3">Оценка (0–1)</label>
       <input type="number" class="form-control" id="dlg-assess-score" step="0.1" value="${scoreVal != null && scoreVal !== "" ? escapeHtml(String(scoreVal)) : ""}" />
@@ -1033,11 +1130,8 @@ $("#tender-save").addEventListener("click", async () => {
   const scoreRaw = $("#dlg-assess-score")?.value;
   const score = scoreRaw === "" ? null : Number(scoreRaw);
   const summary = $("#dlg-assess-summary")?.value ?? "";
-  const rec = $("#dlg-assess-rec")?.value || "";
   const cur = await api(`/tenders/${state.currentTenderId}/assessment`).catch(() => null);
   const details = { ...parseAssessmentDetails(cur) };
-  if (rec) details.recommendation = rec;
-  else delete details.recommendation;
   await api(`/tenders/${state.currentTenderId}/assessment`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
